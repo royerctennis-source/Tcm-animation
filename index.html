@@ -252,21 +252,30 @@ async function startSync(session){
   }).subscribe();
   render();
 }
+/* Identifiant + short code are turned into the e-mail/password pair Supabase needs:
+   "royer" + "0113" -> royer@tcm-animation.fr / TCM-0113. A real e-mail still logs in with its own password. */
+const LOGIN_DOMAIN="tcm-animation.fr", CODE_PREFIX="TCM-";
+function loginCreds(id,code){
+  id=String(id||"").trim();code=String(code||"").trim();
+  if(id.includes("@"))return {email:id,password:code};
+  const slug=id.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9._-]+/g,"");
+  return {email:slug+"@"+LOGIN_DOMAIN,password:CODE_PREFIX+code};
+}
 function renderLogin(){
   return `<header class="top"><div><div class="eyebrow">Tennis Club · animations</div><h1>TCM Animation</h1></div><div class="ballmark" aria-hidden="true"></div></header>
   <form class="panel stack" id="login-form">
     <h2>Connexion</h2>
-    <label class="f">E-mail<input type="email" id="l-email" autocomplete="username" required style="font:inherit;min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);color:var(--ink)"></label>
-    <label class="f">Mot de passe<input type="password" id="l-pass" autocomplete="current-password" required style="font:inherit;min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);color:var(--ink)"></label>
+    <label class="f">Identifiant<input type="text" id="l-email" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required style="font:inherit;min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);color:var(--ink)"></label>
+    <label class="f">Code<input type="password" id="l-pass" inputmode="numeric" autocomplete="current-password" required style="font:inherit;font-size:1.4rem;letter-spacing:.4em;min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);color:var(--ink)"></label>
     <div><button type="submit" class="btn-main">Se connecter</button></div>
-    <p class="note">Le compte est créé par l'administrateur du club dans Supabase. Une fois connecté, tu restes connecté sur ce téléphone.</p>
+    <p class="note">Une fois connecté, tu restes connecté sur ce téléphone.</p>
   </form>`;
 }
 document.addEventListener("submit",async e=>{
   if(e.target.id!=="login-form")return;
   e.preventDefault();e.stopPropagation();
-  const {data,error}=await sb.auth.signInWithPassword({email:document.getElementById("l-email").value.trim(),password:document.getElementById("l-pass").value});
-  if(error){toast("E-mail ou mot de passe incorrect.");return}
+  const {data,error}=await sb.auth.signInWithPassword(loginCreds(document.getElementById("l-email").value,document.getElementById("l-pass").value));
+  if(error){toast("Identifiant ou code incorrect.");return}
   startSync(data.session);
 },true);
 document.addEventListener("click",async e=>{
