@@ -84,6 +84,7 @@ textarea{min-height:120px;resize:vertical}
 .nx .rank{flex:none;width:34px;height:34px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:1.2rem}
 .nx.first{background:color-mix(in srgb,var(--ball) 28%,var(--surface))}
 .nx.first .rank{background:var(--ball);color:var(--ball-ink)}
+.capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
 @media (prefers-reduced-motion:no-preference){.rot-alert{animation:blink 1s ease-in-out infinite alternate}}
@@ -486,7 +487,7 @@ function renderCreate(){
     </div>
     <div class="stack" id="fs-rot" hidden>
       <div class="grid2">
-        <label class="f">Joueurs max sur le terrain<select id="f-cap"><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label>
+        <label class="f">Joueurs max sur le terrain (2 à 30)<input type="number" id="f-cap" min="2" max="30" value="4" inputmode="numeric"></label>
         <label class="f">Alerte après<select id="f-limit">${[6,7,8,9,10,15].map(v=>`<option value="${v}"${v===8?" selected":""}>${v} minutes</option>`).join("")}</select></label>
       </div>
       <p class="note">Pas de liste à préparer : tu notes les prénoms au fur et à mesure des arrivées.</p>
@@ -781,13 +782,14 @@ function renderFlow(a){
   const court=onCourt(a), line=inLine(a), left=gone(a);
   let h=`<div id="rot-banner">${flowBanner(a)}</div>`;
   h+=`<div class="dur" role="group" aria-label="Temps max sur le terrain"><b>Temps max</b>${[6,7,8,9,10,15].map(v=>`<button aria-pressed="${a.limit===v}" data-act="flow-limit" data-v="${v}">${v}'</button>`).join("")}</div>`;
-  h+=`<div class="dur" role="group" aria-label="Joueurs sur le terrain"><b>Sur le terrain</b>${[4,6,8].map(v=>`<button aria-pressed="${a.cap===v}" data-act="flow-cap" data-v="${v}">${v} max</button>`).join("")}</div>`;
+  h+=`<div class="dur" role="group" aria-label="Joueurs max sur le terrain"><b>Joueurs max</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
   h+=`<form class="panel stack" id="arrive-form"><label class="f">Arrivée : prénom, ou plusieurs prénoms séparés par des virgules pour un groupe<input type="text" id="arrive-names" placeholder="Lucas  ·  ou  Emma, Noé, Lina" autocomplete="off" enterkeyhint="done"></label><div><button type="submit" class="btn-ball">Ajouter</button></div><p class="note">Un groupe entre ensemble dès qu'il y a assez de place. Sinon il attend en tête de file.</p></form>`;
   h+=`<section class="stack" style="margin-top:18px"><h2>Sur le terrain · ${court.length}/${a.cap}</h2><div class="list">`;
   court.forEach(p=>{
     h+=`<div class="li pl" data-pid="${p.id}"><div class="grow"><b class="pname">${esc(p.name)}</b><div class="note">${p.passes>1?p.passes+"e passage":"1er passage"}</div></div><span class="ptime" data-on="${p.onAt}">0:00</span><div class="row"><button class="btn-sm" data-act="flow-out" data-id="${p.id}">Sortir</button><button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
   });
-  for(let i=court.length;i<a.cap;i++)h+=`<div class="li slot"><span class="muted">Place libre</span></div>`;
+  const freeN=a.cap-court.length;
+  if(freeN>0)h+=`<div class="li slot"><span class="muted">${freeN} place${freeN>1?"s":""} libre${freeN>1?"s":""}</span></div>`;
   h+=`</div></section>`;
   h+=`<section class="stack" style="margin-top:18px"><h2>En attente · ${line.length}</h2>`;
   if(!line.length)h+=`<p class="muted">Personne n'attend.</p>`;
@@ -824,7 +826,7 @@ function renderFlowStats(a){
 function flowAct(a,act,el){
   const p=el.dataset.id&&a.players.find(x=>x.id===el.dataset.id);
   if(act==="flow-limit"){a.limit=+el.dataset.v;commit(a);toast(`Alerte après ${a.limit} minutes sur le terrain`);return true}
-  if(act==="flow-cap"){a.cap=+el.dataset.v;const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max sur le terrain`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).length>a.cap?" · fais sortir quelqu'un":""));return true}
+  if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max sur le terrain`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).length>a.cap?" · fais sortir quelqu'un":""));return true}
   if(act==="flow-out"){leaveCourt(p);p.state="out";fillCourt(a);enqueue(a,p,null);commit(a);toast(p.name+" sort et repasse en fin de file");return true}
   if(act==="flow-leave"){leaveCourt(p);p.state="left";p.group=null;fillCourt(a);commit(a);toast(p.name+" est parti");return true}
   if(act==="flow-in"){
@@ -869,7 +871,7 @@ $app.addEventListener("submit",e=>{
     const fmt=document.getElementById("f-format").value, flow=fmt==="rotation";
     const names=flow?[]:parseNames(document.getElementById("f-players").value);
     const a=newAnimation({name,date:document.getElementById("f-date").value||today(),type:document.getElementById("f-type").value,format:fmt,
-      live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:+document.getElementById("f-cap").value,limit:+document.getElementById("f-limit").value});
+      live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:clampInt(document.getElementById("f-cap").value,2,30,4),limit:+document.getElementById("f-limit").value});
     view.creating=false;view.animId=a.id;view.tab=flow?"terrain":names.length?(a.format==="defis"?"defis":"matchs"):"joueurs";commit(a);
   }
   if(e.target.id==="arrive-form"){
