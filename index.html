@@ -85,6 +85,21 @@ textarea{min-height:120px;resize:vertical}
 .nx.first{background:color-mix(in srgb,var(--ball) 28%,var(--surface))}
 .nx.first .rank{background:var(--ball);color:var(--ball-ink)}
 .dur .capn+button,.dur b+button{min-width:44px}
+.cchips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cchip{display:flex;flex-direction:column;align-items:center;min-width:52px;min-height:46px;padding:4px 8px;line-height:1.1;font-family:var(--display);font-size:1.25rem}
+.cchip small{font-family:var(--body);font-size:.68rem;font-weight:600;letter-spacing:.02em}
+.cchip.ok small{color:var(--ok)}
+.cchip.full small{color:var(--danger)}
+.cchip.auto{font-size:1rem}
+.cchip.sel{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.cchip.sel small{color:inherit}
+.pick{border:1.5px solid var(--ball);background:color-mix(in srgb,var(--ball) 14%,var(--surface));border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.court-h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.chip-free,.chip-over,.chip-next{font-size:.8rem;font-weight:600;padding:3px 10px;border-radius:999px;font-variant-numeric:tabular-nums}
+.chip-free{background:color-mix(in srgb,var(--ok) 18%,var(--surface));color:var(--ok)}
+.chip-over{background:var(--danger);color:#fff}
+.chip-next{background:var(--bg);color:var(--muted)}
+.wrow{padding:12px 14px}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -722,7 +737,9 @@ function renderSettings(a){
 }
 
 /* ---------- rotation au temps (arrivées libres) ----------
-   Players arrive alone or in a group and wait in line. The court takes up to `cap` players.
+   Players arrive alone or in a group and wait in line. Each court takes up to `cap` players.
+   The organiser can send a player or a group to a chosen court; when that court is full the app
+   says who has gone over time (and offers to swap them) or how long until the next place frees up.
    Whoever has been on court longer than `limit` minutes triggers an alert; a rotation sends
    the longest-playing ones to the back of the line and brings in the next ones. */
 const isFlow=a=>a.format==="rotation";
@@ -730,102 +747,197 @@ const nowMs=()=>Date.now();
 function flowNorm(a){
   if(!a.cap)a.cap=4;
   if(!a.nCourts)a.nCourts=1;
-  a.players.forEach(p=>{if(p.state==="court"&&!p.court)p.court=1});
   if(!a.limit)a.limit=8;
   if(a.qn==null)a.qn=0;
-  a.players.forEach(p=>{if(!p.state)p.state="left";if(p.total==null)p.total=0;if(p.passes==null)p.passes=0});
+  a.players.forEach(p=>{if(!p.state)p.state="left";if(p.state==="court"&&!p.court)p.court=1;if(p.total==null)p.total=0;if(p.passes==null)p.passes=0});
 }
 const onCourt=a=>a.players.filter(p=>p.state==="court").sort((x,y)=>x.onAt-y.onAt);
 const inLine=a=>a.players.filter(p=>p.state==="wait").sort((x,y)=>x.q-y.q);
 const gone=a=>a.players.filter(p=>p.state==="left").sort((x,y)=>x.name.localeCompare(y.name,"fr"));
-function enqueue(a,p,group){p.state="wait";p.q=++a.qn;p.group=group;p.waitSince=nowMs()}
-function enterCourt(p,c){p.state="court";p.court=c||1;p.onAt=nowMs();p.passes=(p.passes||0)+1;p.group=null}
+function enqueue(a,p){p.state="wait";p.q=++a.qn;p.waitSince=nowMs()}
+function enterCourt(p,c){p.state="court";p.court=c||1;p.onAt=nowMs();p.passes=(p.passes||0)+1;p.want=null}
+function leaveCourt(p){if(p.state==="court"&&p.onAt!=null)p.total=(p.total||0)+(nowMs()-p.onAt);p.onAt=null}
 const courtList=(a,c)=>onCourt(a).filter(p=>p.court===c);
+const freeOn=(a,c)=>a.cap-courtList(a,c).length;
 const totalCap=a=>a.cap*a.nCourts;
 /* the court with the most free places (lowest number on a tie) */
-function bestCourt(a,min){let best=null,bf=0;for(let c=1;c<=a.nCourts;c++){const f=a.cap-courtList(a,c).length;if(f>bf&&f>=(min||1)){bf=f;best=c}}return best}
-function leaveCourt(p){if(p.state==="court"&&p.onAt!=null)p.total=(p.total||0)+(nowMs()-p.onAt);p.onAt=null}
-/* Groups go in together when there is room for the whole group; a group bigger than the court goes in as far as it fits */
-function fillCourt(a){
-  if(onCourt(a).length>=totalCap(a))return 0;
+function bestCourt(a,min){let best=null,bf=0;for(let c=1;c<=a.nCourts;c++){const f=freeOn(a,c);if(f>bf&&f>=(min||1)){bf=f;best=c}}return best}
+/* the waiting members of a player's group (or the player alone) */
+const waitingGroup=(a,p)=>p.group?inLine(a).filter(x=>x.group===p.group):[p];
+const groupLabel=p=>p.group&&p.glabel?p.glabel:"";
+function lineGroups(a){
   const groups=[];
   inLine(a).forEach(p=>{const g=groups.find(x=>p.group&&x.id===p.group);if(g)g.list.push(p);else groups.push({id:p.group||p.id,list:[p]})});
+  return groups;
+}
+/* Fill free places in line order. A group goes in together; a group that asked for a court only goes there. */
+function fillCourt(a){
   let n=0;
-  for(const g of groups){
-    const size=g.list.length;
-    let c=bestCourt(a,Math.min(size,a.cap));
-    if(!c)continue;
-    if(size<=a.cap){g.list.forEach(p=>enterCourt(p,c));n+=size}
+  for(const g of lineGroups(a)){
+    if(onCourt(a).length>=totalCap(a))break;
+    const size=g.list.length, want=g.list[0].want;
+    if(want){
+      if(want<=a.nCourts&&freeOn(a,want)>=Math.min(size,a.cap)){const take=g.list.slice(0,freeOn(a,want));take.forEach(p=>enterCourt(p,want));n+=take.length}
+      continue;
+    }
+    if(size<=a.cap){const c=bestCourt(a,size);if(c){g.list.forEach(p=>enterCourt(p,c));n+=size}}
     else{ // a group bigger than one court spreads over the emptiest courts
-      let rest=g.list.slice();
-      while(rest.length&&(c=bestCourt(a,1))){const f=a.cap-courtList(a,c).length;rest.splice(0,f).forEach(p=>enterCourt(p,c));}
+      const rest=g.list.slice();let c;
+      while(rest.length&&(c=bestCourt(a,1)))rest.splice(0,freeOn(a,c)).forEach(p=>enterCourt(p,c));
       n+=size-rest.length;
     }
   }
   return n;
 }
-/* After a change of courts or places: players beyond the last court move to a free place, or go back to the front of the line */
+/* After a change of courts: players beyond the last court move to a free place, or go back to the front of the line */
 function reflowCourts(a){
   const extra=onCourt(a).filter(p=>p.court>a.nCourts);
   const front=Math.min(0,...inLine(a).map(x=>x.q))-extra.length-1;
   extra.forEach((p,i)=>{
     const c=bestCourt(a,1);
-    if(c)p.court=c;else{leaveCourt(p);p.state="wait";p.q=front+i;p.waitSince=nowMs();p.group=null}
+    if(c)p.court=c;else{leaveCourt(p);p.state="wait";p.q=front+i;p.waitSince=nowMs()}
   });
+  a.players.forEach(p=>{if(p.want>a.nCourts)p.want=null});
 }
-function arrive(a,names){
-  const gid=names.length>1?uid():null;
-  const back=[];
+/* What a full court looks like: who is over time, and when the next places free up */
+function courtStatus(a,c,need){
+  const lim=a.limit*60000, cl=courtList(a,c);
+  const over=cl.filter(p=>nowMs()-p.onAt>=lim);
+  const k=Math.max(1,need||1);
+  const nth=cl[Math.min(k,cl.length)-1];
+  return {free:a.cap-cl.length,over,nextAt:nth?nth.onAt+lim:null,nextNames:cl.slice(0,k).map(p=>p.name)};
+}
+/* Who goes out: if a whole group of exactly the needed size is over time, that group goes out together;
+   otherwise the longest-playing go first. */
+function pickOuts(over,need){
+  if(need<=0)return [];
+  const byG={};over.forEach(p=>{if(p.group)(byG[p.group]=byG[p.group]||[]).push(p)});
+  const whole=Object.values(byG).find(g=>g.length===need);
+  return whole||over.slice(0,need);
+}
+function sendGroup(a,list,c){
+  if(freeOn(a,c)<list.length)return false;
+  list.forEach(p=>enterCourt(p,c));return true;
+}
+/* Swap: the longest over-time players of court c go to the back of the line and the group takes their places */
+function swapIn(a,list,c){
+  const st=courtStatus(a,c);const need=list.length-st.free;
+  if(need>st.over.length)return null;
+  const outs=pickOuts(st.over,need);
+  outs.forEach(p=>{leaveCourt(p);p.state="out"});
+  list.forEach(p=>enterCourt(p,c));
+  fillCourt(a);
+  outs.forEach(p=>enqueue(a,p));
+  return outs;
+}
+function joinTarget(a,id){
+  const mate=a.players.find(x=>x.id===id);if(!mate)return null;
+  if(!mate.group){mate.group=uid();mate.glabel=mate.name}
+  return mate;
+}
+/* Arrival: names typed together form a group named after the first one; `withId` joins someone already there */
+function arrive(a,names,court,withId){
+  const mate=withId?joinTarget(a,withId):null;
+  const gid=mate?mate.group:(names.length>1?uid():null);
+  const label=mate?mate.glabel:names[0];
+  const list=[];
   names.forEach(n=>{
     let p=a.players.find(x=>x.state==="left"&&x.name.toLowerCase()===n.toLowerCase());
-    if(p)back.push(p.name);
-    else{p={id:uid(),name:n,present:true,total:0,passes:0};a.players.push(p)}
-    enqueue(a,p,gid);
+    if(!p){p={id:uid(),name:n,present:true,total:0,passes:0};a.players.push(p)}
+    p.group=gid;p.glabel=gid?label:null;p.want=null;
+    enqueue(a,p);list.push(p);
   });
-  return {entered:fillCourt(a),back};
+  let target=court||null;
+  if(!target&&mate&&mate.state==="court")target=mate.court;
+  if(target){
+    if(sendGroup(a,list,target))return {list,court:target,placed:true};
+    list.forEach(p=>p.want=target);
+    return {list,court:target,placed:false};
+  }
+  const n=fillCourt(a);
+  return {list,placed:list.every(p=>p.state==="court"),court:list[0].state==="court"?list[0].court:null,entered:n};
 }
 const overTime=a=>onCourt(a).filter(p=>nowMs()-p.onAt>=a.limit*60000);
-/* Rotation: as many waiting players come in as there are over-time players to swap out (plus free spots).
-   The longest-playing go out first and join the back of the line. */
+/* Rotation: as many waiting players come in as there are over-time players to swap out (plus free places).
+   The longest-playing go out first and join the back of the line; a player who asked for a court gets it when it frees up. */
 function rotate(a){
   const over=overTime(a), line=inLine(a);
   const free=Math.max(0,totalCap(a)-onCourt(a).length);
   const comeIn=Math.min(line.length,over.length+free);
   const goOut=Math.max(0,comeIn-free);
-  const outs=over.slice(0,goOut), ins=line.slice(0,comeIn);
+  const outs=pickOuts(over,goOut), ins=line.slice(0,comeIn);
   outs.forEach(p=>{leaveCourt(p);p.state="out"});
-  ins.forEach(p=>enterCourt(p,bestCourt(a,1)||1));
-  outs.forEach(p=>enqueue(a,p,null));
+  ins.forEach(p=>enterCourt(p,(p.want&&freeOn(a,p.want)>0)?p.want:(bestCourt(a,1)||1)));
+  fillCourt(a);
+  outs.forEach(p=>enqueue(a,p));
   return {ins,outs};
 }
 function flowTotal(p){return (p.total||0)+(p.state==="court"&&p.onAt?nowMs()-p.onAt:0)}
 const fmtDur=ms=>{const s=Math.max(0,Math.floor(ms/1000));const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+" h "+String(m).padStart(2,"0"):m+" min"};
+const untilTxt=at=>{const ms=at-nowMs();return ms<=0?"maintenant":mmss(ms)};
+function courtChips(a,attrs,sel){
+  let h="";
+  for(let c=1;c<=a.nCourts;c++){const f=freeOn(a,c);h+=`<button type="button" class="btn-sm cchip${f>0?" ok":" full"}${sel===c?" sel":""}" ${attrs} data-c="${c}" aria-label="Terrain ${c}, ${f>0?f+" place"+(f>1?"s":"")+" libre"+(f>1?"s":""):"complet"}">${c}<small>${f>0?f+" libre"+(f>1?"s":""):"complet"}</small></button>`}
+  return h;
+}
+function pickPanel(a,list,c){
+  const size=list.length, st=courtStatus(a,c,size-Math.max(0,freeOn(a,c)));
+  const need=size-st.free;
+  const who=list.map(p=>p.name).join(", ");
+  let h=`<div class="pick"><b>Terrain ${c} complet</b> (${a.cap-st.free}/${a.cap})${size>1?` · il faut ${size} places pour ${esc(who)}`:""}`;
+  if(st.over.length>=need){
+    const outs=pickOuts(st.over,need).map(p=>p.name).join(", ");
+    h+=`<div class="note">${esc(st.over.map(p=>p.name).join(", "))} ${st.over.length>1?"ont":"a"} dépassé ${a.limit} min : tu peux envoyer ${size>1?"le groupe":esc(who)} tout de suite.</div><div class="row"><button class="btn-ball btn-sm" data-act="flow-swap" data-id="${list[0].id}" data-c="${c}">Envoyer à la place de ${esc(outs)}</button>`;
+  }else{
+    h+=`<div class="note">Place${need>1?"s":""} libre${need>1?"s":""} dans <b data-until="${st.nextAt}">${untilTxt(st.nextAt)}</b> (fin du temps de ${esc(st.nextNames.join(", "))}).</div><div class="row">`;
+  }
+  const reserved=list.every(p=>p.want===c);
+  h+=reserved?`<span class="note">✓ Réservé : ${size>1?"ils entreront":"entrera"} sur ce terrain dès qu'il se libère</span>`:`<button class="btn-sm" data-act="flow-want" data-id="${list[0].id}" data-c="${c}">Réserver le terrain ${c}</button>`;
+  h+=`<button class="btn-ghost btn-sm" data-act="flow-pick-close">Fermer</button></div></div>`;
+  return h;
+}
 function renderFlow(a){
-  const court=onCourt(a), line=inLine(a), left=gone(a);
+  const line=inLine(a), left=gone(a);
+  const arrC=view.arrC&&view.arrC<=a.nCourts?view.arrC:null;
   let h=`<div id="rot-banner">${flowBanner(a)}</div>`;
   h+=`<div class="dur" role="group" aria-label="Temps max sur le terrain"><b>Temps max</b>${[6,7,8,9,10,15].map(v=>`<button aria-pressed="${a.limit===v}" data-act="flow-limit" data-v="${v}">${v}'</button>`).join("")}</div>`;
   h+=`<div class="dur" role="group" aria-label="Nombre de terrains"><b>Terrains</b><button data-act="flow-courts" data-v="${a.nCourts-1}"${a.nCourts<=1?" disabled":""} aria-label="Un terrain de moins">−</button><span class="capn">${a.nCourts}</span><button data-act="flow-courts" data-v="${a.nCourts+1}"${a.nCourts>=12?" disabled":""} aria-label="Un terrain de plus">+</button></div>`;
   h+=`<div class="dur" role="group" aria-label="Joueurs max par terrain"><b>Joueurs max${a.nCourts>1?" par terrain":""}</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
-  h+=`<form class="panel stack" id="arrive-form"><label class="f">Arrivée : prénom, ou plusieurs prénoms séparés par des virgules pour un groupe<input type="text" id="arrive-names" placeholder="Lucas  ·  ou  Emma, Noé, Lina" autocomplete="off" enterkeyhint="done"></label><div><button type="submit" class="btn-ball">Ajouter</button></div><p class="note">Un groupe entre ensemble dès qu'il y a assez de place. Sinon il attend en tête de file.</p></form>`;
+  // arrival
+  const mates=[];const seen=new Set();
+  onCourt(a).concat(line).forEach(p=>{const k=p.group||p.id;if(seen.has(k))return;seen.add(k);mates.push(p)});
+  h+=`<form class="panel stack" id="arrive-form">
+    <label class="f">Arrivée : un prénom, ou plusieurs séparés par des virgules s'ils veulent jouer ensemble<input type="text" id="arrive-names" value="${esc(view.arrNames||"")}" placeholder="Lucas  ·  ou  Emma, Noé, Lina" autocomplete="off" enterkeyhint="done"></label>
+    ${mates.length?`<label class="f">Ensemble avec (facultatif)<select id="arrive-with"><option value="">Personne : nouveau joueur ou nouveau groupe</option>${mates.map(p=>`<option value="${p.id}"${view.arrWith===p.id?" selected":""}>${p.group?"Groupe "+esc(p.glabel):esc(p.name)} · ${p.state==="court"?(a.nCourts>1?"terrain "+p.court:"sur le terrain"):"en attente"}</option>`).join("")}</select></label>`:""}
+    <div class="stack" style="gap:6px"><span class="f" style="font-weight:600;font-size:.9rem">Terrain</span><div class="cchips"><button type="button" class="btn-sm cchip auto${arrC?"":" sel"}" data-act="flow-arrc" data-c="">Auto<small>le plus libre</small></button>${courtChips(a,'data-act="flow-arrc"',arrC)}</div></div>
+    <div><button type="submit" class="btn-ball">Ajouter</button></div>
+  </form>`;
+  if(view.pick&&view.pick.from==="arrive"){const pp=a.players.find(x=>x.id===view.pick.id);if(pp&&pp.state==="wait")h+=pickPanel(a,waitingGroup(a,pp),view.pick.c)}
+  // courts
   for(let c=1;c<=a.nCourts;c++){
-  const cl=courtList(a,c);
-  h+=`<section class="stack" style="margin-top:18px"><h2>${a.nCourts>1?"Terrain "+c:"Sur le terrain"} · ${cl.length}/${a.cap}</h2><div class="list">`;
-  cl.forEach(p=>{
-    h+=`<div class="li pl" data-pid="${p.id}"><div class="grow"><b class="pname">${esc(p.name)}</b><div class="note">${p.passes>1?p.passes+"e passage":"1er passage"}</div></div><span class="ptime" data-on="${p.onAt}">0:00</span><div class="row"><button class="btn-sm" data-act="flow-out" data-id="${p.id}">Sortir</button><button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
-  });
-  const freeN=a.cap-cl.length;
-  if(freeN>0)h+=`<div class="li slot"><span class="muted">${freeN} place${freeN>1?"s":""} libre${freeN>1?"s":""}</span></div>`;
-  h+=`</div></section>`;
+    const cl=courtList(a,c), st=courtStatus(a,c);
+    h+=`<section class="stack" style="margin-top:18px"><div class="court-h"><h2>${a.nCourts>1?"Terrain "+c:"Sur le terrain"} · ${cl.length}/${a.cap}</h2>${st.free>0?`<span class="chip-free">${st.free} libre${st.free>1?"s":""}</span>`:st.over.length?`<span class="chip-over">${st.over.length} au-delà du temps</span>`:`<span class="chip-next">place dans <b data-until="${st.nextAt}">${untilTxt(st.nextAt)}</b></span>`}</div><div class="list">`;
+    cl.forEach(p=>{
+      const gl=groupLabel(p);
+      h+=`<div class="li pl" data-pid="${p.id}"><div class="grow"><b class="pname">${esc(p.name)}</b><div class="note">${gl?"groupe "+esc(gl)+" · ":""}${p.passes>1?p.passes+"e passage":"1er passage"}</div></div><span class="ptime" data-on="${p.onAt}">0:00</span><div class="row"><button class="btn-sm" data-act="flow-out" data-id="${p.id}">Sortir</button><button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
+    });
+    if(st.free>0)h+=`<div class="li slot"><span class="muted">${st.free} place${st.free>1?"s":""} libre${st.free>1?"s":""}</span></div>`;
+    h+=`</div></section>`;
   }
-  h+=`<section class="stack" style="margin-top:18px"><h2>En attente · ${line.length}</h2>`;
+  // line
+  h+=`<section class="stack" style="margin-top:18px"><h2>En attente / en pause · ${line.length}</h2>`;
   if(!line.length)h+=`<p class="muted">Personne n'attend.</p>`;
   else{
-    h+=`<div class="list">`;
-    let prevG=null;
-    line.forEach((p,i)=>{
-      const grouped=p.group&&line.some(x=>x!==p&&x.group===p.group);
-      h+=`<div class="li${grouped?" grp":""}${grouped&&prevG===p.group?" grp-next":""}"><span class="qn">${i+1}</span><div class="grow"><b>${esc(p.name)}</b><div class="note">${grouped?"en groupe · ":""}attend depuis <span data-wait="${p.waitSince}">0 min</span></div></div><div class="row">${court.length<totalCap(a)?`<button class="btn-sm" data-act="flow-in" data-id="${p.id}">Faire entrer</button>`:""}<button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
-      prevG=p.group;
+    h+=`<p class="note">Touche un numéro de terrain pour y envoyer le joueur ou son groupe.</p><div class="list">`;
+    let i=0;
+    lineGroups(a).forEach(g=>{
+      const first=g.list[0], gl=g.list.length>1||first.group?groupLabel(first):"";
+      const names=g.list.map(p=>esc(p.name)).join(", ");
+      i++;
+      h+=`<div class="stack wrow${g.list.length>1?" grp":""}" style="gap:8px"><div class="li" style="padding:0;border:0"><span class="qn">${i}</span><div class="grow"><b>${names}</b><div class="note">${gl?"groupe "+esc(gl)+" · ":""}${first.want?"veut le terrain "+first.want+" · ":""}attend depuis <span data-wait="${first.waitSince}">${fmtDur(nowMs()-first.waitSince)}</span></div></div></div>
+        <div class="cchips"><span class="note">Terrain</span>${courtChips(a,`data-act="flow-pick" data-id="${first.id}"`,first.want)}</div>
+        ${view.pick&&view.pick.from==="line"&&view.pick.id===first.id?pickPanel(a,g.list,view.pick.c):""}
+        <div class="row">${g.list.map(p=>`<button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">${g.list.length>1?esc(p.name)+" part":"Part"}</button>`).join("")}${first.want?`<button class="btn-ghost btn-sm" data-act="flow-unwant" data-id="${first.id}">Annuler la réservation</button>`:""}</div></div>`;
     });
     h+=`</div>`;
   }
@@ -846,27 +958,56 @@ function renderFlowStats(a){
   if(!list.length)return `<p class="muted">Les stats apparaissent dès les premières arrivées.</p>`;
   const st={court:"Sur le terrain",wait:"En attente",left:"Parti",out:"En attente"};
   let h=`<div class="tbl-wrap"><table><thead><tr><th>Prénom</th><th class="num">Passages</th><th class="num">Temps de jeu</th><th>Statut</th></tr></thead><tbody>`;
-  list.forEach(p=>{h+=`<tr><td><b>${esc(p.name)}</b></td><td class="num">${p.passes||0}</td><td class="num">${fmtDur(flowTotal(p))}</td><td>${st[p.state]||""}</td></tr>`});
+  list.forEach(p=>{h+=`<tr><td><b>${esc(p.name)}</b></td><td class="num">${p.passes||0}</td><td class="num">${fmtDur(flowTotal(p))}</td><td>${st[p.state]||""}${p.state==="court"&&a.nCourts>1?" "+p.court:""}</td></tr>`});
   return h+`</tbody></table></div><p class="note" style="margin-top:8px">${a.players.length} participants au total.</p>`;
+}
+function flowArrive(a){
+  const inp=document.getElementById("arrive-names");
+  const names=parseNames(inp?inp.value:"");if(!names.length)return;
+  const sel=document.getElementById("arrive-with");
+  const withId=sel?sel.value:"";
+  const c=view.arrC&&view.arrC<=a.nCourts?view.arrC:null;
+  const r=arrive(a,names,c,withId);
+  view.arrNames="";view.arrWith="";
+  if(!r.placed&&r.court)view.pick={from:"arrive",id:r.list[0].id,c:r.court};else view.pick=null;
+  commit(a);
+  const i2=document.getElementById("arrive-names");if(i2)i2.focus();
+  const who=names.join(", ");
+  if(r.placed)toast(`${who} → ${a.nCourts>1?"terrain "+r.court:"sur le terrain"}`);
+  else if(r.court)toast(`Terrain ${r.court} complet : ${who} en attente`);
+  else toast(`${who} : ${r.list.some(p=>p.state==="court")?"en partie sur le terrain":"en attente"}`);
 }
 function flowAct(a,act,el){
   const p=el.dataset.id&&a.players.find(x=>x.id===el.dataset.id);
+  const c=el.dataset.c?+el.dataset.c:null;
   if(act==="flow-limit"){a.limit=+el.dataset.v;commit(a);toast(`Alerte après ${a.limit} minutes sur le terrain`);return true}
-  if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max${a.nCourts>1?" par terrain":""}`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).some(p=>courtList(a,p.court).length>a.cap)?" · fais sortir quelqu'un":""));return true}
+  if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max${a.nCourts>1?" par terrain":""}`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).some(x=>courtList(a,x.court).length>a.cap)?" · fais sortir quelqu'un":""));return true}
   if(act==="flow-courts"){a.nCourts=Math.max(1,Math.min(12,+el.dataset.v));reflowCourts(a);const n=fillCourt(a);commit(a);toast(`${a.nCourts} terrain${a.nCourts>1?"s":""}`+(n?` · ${n} entré${n>1?"s":""}`:""));return true}
-  if(act==="flow-out"){leaveCourt(p);p.state="out";fillCourt(a);enqueue(a,p,null);commit(a);toast(p.name+" sort et repasse en fin de file");return true}
-  if(act==="flow-leave"){leaveCourt(p);p.state="left";p.group=null;fillCourt(a);commit(a);toast(p.name+" est parti");return true}
-  if(act==="flow-in"){
-    const c=bestCourt(a,1);if(!c){toast("Les terrains sont complets");return true}
-    enterCourt(p,c);commit(a);return true}
-  if(act==="flow-back"){enqueue(a,p,null);fillCourt(a);commit(a);toast(p.name+" revient dans la file");return true}
+  if(act==="flow-arrc"){
+    view.arrC=c;
+    document.querySelectorAll('[data-act="flow-arrc"]').forEach(b=>b.classList.toggle("sel",(+b.dataset.c||null)===c));
+    return true}
+  if(act==="flow-pick"){
+    const list=waitingGroup(a,p);
+    if(sendGroup(a,list,c)){view.pick=null;commit(a);toast(`${list.map(x=>x.name).join(", ")} → terrain ${c}`);return true}
+    view.pick={from:"line",id:p.id,c};render();return true}
+  if(act==="flow-swap"){
+    const list=waitingGroup(a,p);const outs=swapIn(a,list,c);
+    if(!outs){toast("Pas assez de joueurs au-delà du temps sur ce terrain");render();return true}
+    view.pick=null;commit(a);toast(`${list.map(x=>x.name).join(", ")} → terrain ${c}${outs.length?" · sortent : "+outs.map(x=>x.name).join(", "):""}`);return true}
+  if(act==="flow-want"){waitingGroup(a,p).forEach(x=>x.want=c);commit(a);toast(`Terrain ${c} réservé`);return true}
+  if(act==="flow-unwant"){waitingGroup(a,p).forEach(x=>x.want=null);fillCourt(a);commit(a);return true}
+  if(act==="flow-pick-close"){view.pick=null;render();return true}
+  if(act==="flow-out"){leaveCourt(p);p.state="out";fillCourt(a);enqueue(a,p);commit(a);toast(p.name+" sort et repasse en fin de file");return true}
+  if(act==="flow-leave"){leaveCourt(p);p.state="left";p.group=null;p.glabel=null;p.want=null;fillCourt(a);commit(a);toast(p.name+" est parti");return true}
+  if(act==="flow-back"){enqueue(a,p);fillCourt(a);commit(a);toast(p.name+" revient dans la file");return true}
   if(act==="flow-rotate"){
-    const r=rotate(a);commit(a);
+    const r=rotate(a);view.pick=null;commit(a);
     toast(r.ins.length?`Entrent : ${r.ins.map(x=>x.name).join(", ")}${r.outs.length?" · Sortent : "+r.outs.map(x=>x.name).join(", "):""}`:"Personne à faire entrer");
     return true}
   return false;
 }
-const flowRung=new Set();
+const flowRung=new Set();let flowDue=false;
 function flowTick(a){
   const banner=document.getElementById("rot-banner");if(!banner)return;
   const lim=a.limit*60000;
@@ -876,141 +1017,8 @@ function flowTick(a){
     const row=s.closest(".pl");const over=t>=lim;
     if(row)row.classList.toggle("over",over);
     const key=s.closest("[data-pid]").dataset.pid+"@"+on;
-    if(over&&!flowRung.has(key)&&inLine(a).length){flowRung.add(key);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
+    if(over&&!flowRung.has(key)){flowRung.add(key);flowDue=true;if(inLine(a).length){beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}}
   });
   document.querySelectorAll("[data-wait]").forEach(s=>s.textContent=fmtDur(nowMs()-(+s.dataset.wait)));
-  const html=flowBanner(a);
-  if(banner._h!==html){banner._h=html;banner.innerHTML=html}
-}
-
-/* ---------- events ---------- */
-const parseNames=txt=>txt.split(/\n|,|;/).map(s=>s.trim()).filter(Boolean);
-const clampInt=(v,lo,hi,def)=>{const n=parseInt(v,10);return isNaN(n)?def:Math.max(lo,Math.min(hi,n))};
-function setCurrentDefi(a,id){
-  a.currentDefi=id||null;
-  // the chosen défi goes on the upcoming matches, and on live matches that have none yet
-  a.matches.forEach(m=>{if(m.status==="planned"||(m.status==="playing"&&!m.defiId)){m.defiId=a.currentDefi;m.defiCount=0}});
-}
-$app.addEventListener("submit",e=>{
-  e.preventDefault();
-  if(e.target.id==="create-form"){
-    const name=document.getElementById("f-name").value.trim()||"Animation";
-    const fmt=document.getElementById("f-format").value, flow=fmt==="rotation";
-    const names=flow?[]:parseNames(document.getElementById("f-players").value);
-    const a=newAnimation({name,date:document.getElementById("f-date").value||today(),type:document.getElementById("f-type").value,format:fmt,
-      live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:clampInt(document.getElementById("f-cap").value,2,30,4),nCourts:clampInt(document.getElementById("f-courts").value,1,12,1),limit:+document.getElementById("f-limit").value});
-    view.creating=false;view.animId=a.id;view.tab=flow?"terrain":names.length?(a.format==="defis"?"defis":"matchs"):"joueurs";commit(a);
-  }
-  if(e.target.id==="arrive-form"){
-    const a=anim();const inp=document.getElementById("arrive-names");
-    const names=parseNames(inp.value);if(!names.length)return;
-    const r=arrive(a,names);commit(a);
-    const i2=document.getElementById("arrive-names");if(i2){i2.value="";i2.focus()}
-    toast(`${names.join(", ")} ${names.length>1?"arrivent":"arrive"}`+(r.entered?` · ${r.entered} sur le terrain`:" · en attente"));
-    return;
-  }
-  if(e.target.id==="settings-form"){
-    const a=anim();
-    a.name=document.getElementById("s-name").value.trim()||a.name;
-    a.date=document.getElementById("s-date").value||a.date;
-    if(isFlow(a)){commit(a);toast("Réglages enregistrés");return}
-    a.type=document.getElementById("s-type").value;a.format=document.getElementById("s-format").value;
-    a.live=clampInt(document.getElementById("s-live").value,1,20,a.live);
-    {const v=document.getElementById("s-dur").value;a.duration=v?+v:null}
-    commit(a);toast("Réglages enregistrés");
-  }
-});
-$app.addEventListener("click",e=>{
-  const el=e.target.closest("[data-act]");if(!el)return;
-  if(el.tagName==="INPUT"||el.tagName==="SELECT")return;
-  const act=el.dataset.act;
-  const a=anim();
-  if(a&&act.startsWith("flow-")&&flowAct(a,act,el))return;
-  const findM=()=>a.matches.find(m=>m.id===el.dataset.id);
-  switch(act){
-    case "new":view.creating=true;render();setTimeout(()=>{const f=document.getElementById("f-name");f&&f.focus()},0);break;
-    case "cancel-new":view.creating=false;render();break;
-    case "example":{
-      const names=["Léa","Chloé","Inès","Manon","Camille","Jade","Louise","Zoé","Lina","Emma","Alice","Rose","Anna","Mila","Lou","Nina","Clara","Sarah","Julia","Eva"];
-      const x=newAnimation({name:"Exemple – Après-midi filles",date:today(),type:"simple",format:"defis",live:6,queue:2,names});
-      x.defis=[{id:uid(),text:"Gagner un point au filet"},{id:uid(),text:"Faire 5 échanges de suite"},{id:uid(),text:"Servir deux fois dans le carré"}];
-      x.currentDefi=x.defis[0].id;
-      view.animId=x.id;view.tab="matchs";commit(x);break;}
-    case "open":{const o=norm(store.animations[el.dataset.id]);if(o.matches.length&&byStatus(o,"playing").length&&available(o).length>=need(o)){refill(o);o.updatedAt=Date.now();saveLocal();queueDb(o.id)}}
-      view.animId=el.dataset.id;view.tab="matchs";view.editMatch=null;view.openPlayer=null;render();window.scrollTo(0,0);break;
-    case "home":view.animId=null;render();window.scrollTo(0,0);break;
-    case "tab":view.tab=el.dataset.tab;render();break;
-    case "start":case "refill":{refill(a);commit(a);const p=byStatus(a,"playing").length;if(p<a.live)toast(`${p} matchs en jeu : pas assez de joueuses pour en lancer plus.`);break;}
-    case "back":case "defi-win":{
-      const m=findM();m.status="done";m.endedAt=Date.now();m.defiCount=act==="defi-win"?1:0;
-      const before=byStatus(a,"planned")[0];
-      refill(a,m);commit(a);
-      if(before&&before.status==="playing")toast(`Match ${before.seq} part : ${team(a,before.a)} contre ${team(a,before.b)}`);
-      break;}
-    case "undo-back":{const m=findM();m.status="playing";m.endedAt=null;m.backAt=null;view.editMatch=null;commit(a);toast("Match remis en jeu");break;}
-    case "redraw":{const m=findM();if(!redrawMatch(a,m))toast("Pas d'autre tirage possible pour l'instant.");commit(a);break;}
-    case "set-live":{a.live=+el.dataset.v;refill(a);commit(a);toast(`${a.live} matchs en même temps : les prochains retours ne relancent pas de match tant qu'on n'est pas redescendu à ${a.live}.`);break;}
-    case "dur":{a.duration=el.dataset.v?+el.dataset.v:null;commit(a);toast(a.duration?`Matchs de ${a.duration} minutes`:"Matchs sans limite de temps");break;}
-    case "defi-plus":{const m=findM();m.defiCount=(m.defiCount||0)+1;commit(a);break;}
-    case "defi-minus":{const m=findM();m.defiCount=Math.max(0,(m.defiCount||0)-1);commit(a);break;}
-    case "win":{const m=findM();m.winner=m.winner===el.dataset.w?null:el.dataset.w;commit(a);break;}
-    case "edit-match":view.editMatch=view.editMatch===el.dataset.id?null:el.dataset.id;render();break;
-    case "add-players":{const names=parseNames(document.getElementById("add-players").value);if(!names.length)return;names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));commit(a);toast(names.length+" ajoutée(s)");break;}
-    case "pause":case "remove-confirm":{
-      const p=a.players.find(x=>x.id===el.dataset.id);
-      if(act==="pause")p.present=false;
-      else{view.confirmRemove=null;if(a.matches.some(m=>m.a.concat(m.b).includes(p.id)))p.removed=true;else a.players=a.players.filter(x=>x.id!==p.id)}
-      const n=dropFromPlanned(a,p.id);
-      const live=isPlaying(a,p.id);
-      commit(a);
-      toast(`${p.name} ${act==="pause"?"en pause":"retirée"}${n?" · prochain match retiré":""}${live?" · son match en cours continue":""}`);
-      break;}
-    case "resume":case "restore":{const p=a.players.find(x=>x.id===el.dataset.id);p.present=true;p.removed=false;if(a.matches.length)refill(a);commit(a);toast(p.name+" reprend les tirages");break;}
-    case "remove-player":view.confirmRemove=el.dataset.id;render();break;
-    case "remove-cancel":view.confirmRemove=null;render();break;
-    case "add-defi":{
-      const v=document.getElementById("new-defi").value.trim();if(!v)return;
-      const d={id:uid(),text:v};a.defis.push(d);
-      if(!a.currentDefi)setCurrentDefi(a,d.id);
-      commit(a);toast(a.currentDefi===d.id?"Défi ajouté et mis en jeu":"Défi ajouté. Coche « En jeu » pour le jouer.");
-      setTimeout(()=>{const f=document.getElementById("new-defi");f&&f.focus()},0);break;}
-    case "del-defi":a.defis=a.defis.filter(d=>d.id!==el.dataset.id);if(a.currentDefi===el.dataset.id)setCurrentDefi(a,null);commit(a);break;
-    case "open-player":view.openPlayer=view.openPlayer===el.dataset.id?null:el.dataset.id;render();break;
-    case "delete":view.confirmDel=a.id;render();break;
-    case "delete-cancel":view.confirmDel=null;render();break;
-    case "delete-confirm":{const id=a.id;delete store.animations[id];saveLocal();queueDb(id);view.animId=null;view.confirmDel=null;render();toast("Animation supprimée");break;}
-  }
-});
-$app.addEventListener("change",e=>{
-  if(e.target.id==="f-format"){const fl=e.target.value==="rotation";document.getElementById("fs-rot").hidden=!fl;document.getElementById("fs-match").hidden=fl;return}
-  const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
-  const a=anim();if(!a)return;
-  const m=a.matches.find(x=>x.id===el.dataset.id);
-  if(act==="score"){m.score=el.value.trim();commit(a)}
-  if(act==="defi-ok"){m.defiCount=el.checked?1:0;commit(a)}
-  if(act==="match-defi"){m.defiId=el.value||null;m.defiCount=0;commit(a)}
-  if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
-  if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
-});
-$app.addEventListener("keydown",e=>{
-  if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
-});
-let audio=null;const rung=new Set();
-document.addEventListener("pointerdown",()=>{if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},{once:false});
-function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTime+t+0.3)})}catch(e){}}
-setInterval(()=>{
-  const a=view.animId&&store.animations[view.animId];if(!a)return;
-  if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
-  document.querySelectorAll(".court[data-mid]").forEach(card=>{
-    const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
-    const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
-    if(c.over&&!rung.has(m.id)){rung.add(m.id);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
-  });
-},1000);
-
-loadLocal();render();connectDb();
-})();
-</script>
-
-<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
-</body></html>
+  document.querySelectorAll("[data-until]").forEach(s=>s.textContent=untilTxt(+s.dataset.until));
+  const html
