@@ -84,6 +84,7 @@ textarea{min-height:120px;resize:vertical}
 .nx .rank{flex:none;width:34px;height:34px;border-radius:50%;background:var(--bg);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:1.2rem}
 .nx.first{background:color-mix(in srgb,var(--ball) 28%,var(--surface))}
 .nx.first .rank{background:var(--ball);color:var(--ball-ink)}
+.dur .capn+button,.dur b+button{min-width:44px}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -304,7 +305,7 @@ const need=a=>a.type==="double"?4:2;
 const defiText=(a,id)=>{const d=a.defis.find(x=>x.id===id);return d?d.text:""};
 
 function newAnimation(o){
-  return {id:uid(),name:o.name,date:o.date,type:o.type,format:o.format,live:o.live,queue:o.queue,cap:o.cap||4,limit:o.limit||8,
+  return {id:uid(),name:o.name,date:o.date,type:o.type,format:o.format,live:o.live,queue:o.queue,cap:o.cap||4,nCourts:o.nCourts||1,limit:o.limit||8,
     players:o.names.map(n=>({id:uid(),name:n,present:true})),defis:[],currentDefi:null,matches:[],seq:0,createdAt:Date.now(),updatedAt:Date.now()};
 }
 function tally(a,statuses){
@@ -462,7 +463,7 @@ function renderHome(){
   }
   list.forEach(a=>{
     const nm=byStatus(a,"done").length;
-    if(isFlow(a)){h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Rotation au temps · ${a.cap} max · ${a.limit} min</div></div><div class="n">${a.players.length}<small>venus</small></div><div class="n">${onCourt(a).length}<small>en jeu</small></div></button>`;return}
+    if(isFlow(a)){h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Rotation au temps · ${a.nCourts>1?a.nCourts+" terrains × "+a.cap:a.cap+" max"} · ${a.limit} min</div></div><div class="n">${a.players.length}<small>venus</small></div><div class="n">${onCourt(a).length}<small>en jeu</small></div></button>`;return}
     h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · ${a.type==="double"?"Double":"Simple"} · ${esc(FORMAT_SHORT[a.format])}</div></div><div class="n">${a.players.length}<small>inscrits</small></div><div class="n">${nm}<small>matchs</small></div></button>`;
   });
   if(sb&&online)h+=`<p class="note" style="margin-top:24px">Connecté : ${esc(userEmail)} · données synchronisées. <button class="btn-ghost btn-sm" data-act="logout">Se déconnecter</button></p>`;
@@ -487,9 +488,10 @@ function renderCreate(){
     </div>
     <div class="stack" id="fs-rot" hidden>
       <div class="grid2">
-        <label class="f">Joueurs max sur le terrain (2 à 30)<input type="number" id="f-cap" min="2" max="30" value="4" inputmode="numeric"></label>
-        <label class="f">Alerte après<select id="f-limit">${[6,7,8,9,10,15].map(v=>`<option value="${v}"${v===8?" selected":""}>${v} minutes</option>`).join("")}</select></label>
+        <label class="f">Nombre de terrains<input type="number" id="f-courts" min="1" max="12" value="1" inputmode="numeric"></label>
+        <label class="f">Joueurs max par terrain (2 à 30)<input type="number" id="f-cap" min="2" max="30" value="4" inputmode="numeric"></label>
       </div>
+      <label class="f">Alerte après<select id="f-limit">${[6,7,8,9,10,15].map(v=>`<option value="${v}"${v===8?" selected":""}>${v} minutes</option>`).join("")}</select></label>
       <p class="note">Pas de liste à préparer : tu notes les prénoms au fur et à mesure des arrivées.</p>
     </div>
     <div class="row"><button type="submit" class="btn-main">Créer l'animation</button><button type="button" class="btn-ghost" data-act="cancel-new">Annuler</button></div>
@@ -500,7 +502,7 @@ function renderAnim(a){
     const ftabs=[["terrain","Terrain"],["stats","Stats"],["reglages","Réglages"]];
     if(!ftabs.some(t=>t[0]===view.tab))view.tab="terrain";
     let h=`<button class="btn-ghost" data-act="home">← TCM Animation</button>`;
-    h+=`<header class="top"><div style="min-width:0"><div class="eyebrow">${fmtDate(a.date)} · ${a.cap} joueurs max · alerte à ${a.limit} min</div><h1>${esc(a.name)}</h1><div class="muted">Rotation au temps</div></div><div class="ballmark" aria-hidden="true"></div></header>`;
+    h+=`<header class="top"><div style="min-width:0"><div class="eyebrow">${fmtDate(a.date)} · ${a.nCourts>1?a.nCourts+" terrains × "+a.cap+" joueurs":a.cap+" joueurs max"} · alerte à ${a.limit} min</div><h1>${esc(a.name)}</h1><div class="muted">Rotation au temps</div></div><div class="ballmark" aria-hidden="true"></div></header>`;
     h+=`<nav class="tabs" role="tablist">${ftabs.map(([k,v])=>`<button role="tab" aria-selected="${view.tab===k}" data-act="tab" data-tab="${k}">${v}</button>`).join("")}</nav>`;
     if(view.tab==="terrain")h+=renderFlow(a);
     if(view.tab==="stats")h+=renderFlowStats(a);
@@ -727,6 +729,8 @@ const isFlow=a=>a.format==="rotation";
 const nowMs=()=>Date.now();
 function flowNorm(a){
   if(!a.cap)a.cap=4;
+  if(!a.nCourts)a.nCourts=1;
+  a.players.forEach(p=>{if(p.state==="court"&&!p.court)p.court=1});
   if(!a.limit)a.limit=8;
   if(a.qn==null)a.qn=0;
   a.players.forEach(p=>{if(!p.state)p.state="left";if(p.total==null)p.total=0;if(p.passes==null)p.passes=0});
@@ -735,21 +739,39 @@ const onCourt=a=>a.players.filter(p=>p.state==="court").sort((x,y)=>x.onAt-y.onA
 const inLine=a=>a.players.filter(p=>p.state==="wait").sort((x,y)=>x.q-y.q);
 const gone=a=>a.players.filter(p=>p.state==="left").sort((x,y)=>x.name.localeCompare(y.name,"fr"));
 function enqueue(a,p,group){p.state="wait";p.q=++a.qn;p.group=group;p.waitSince=nowMs()}
-function enterCourt(p){p.state="court";p.onAt=nowMs();p.passes=(p.passes||0)+1;p.group=null}
+function enterCourt(p,c){p.state="court";p.court=c||1;p.onAt=nowMs();p.passes=(p.passes||0)+1;p.group=null}
+const courtList=(a,c)=>onCourt(a).filter(p=>p.court===c);
+const totalCap=a=>a.cap*a.nCourts;
+/* the court with the most free places (lowest number on a tie) */
+function bestCourt(a,min){let best=null,bf=0;for(let c=1;c<=a.nCourts;c++){const f=a.cap-courtList(a,c).length;if(f>bf&&f>=(min||1)){bf=f;best=c}}return best}
 function leaveCourt(p){if(p.state==="court"&&p.onAt!=null)p.total=(p.total||0)+(nowMs()-p.onAt);p.onAt=null}
 /* Groups go in together when there is room for the whole group; a group bigger than the court goes in as far as it fits */
 function fillCourt(a){
-  let free=a.cap-onCourt(a).length;
-  if(free<=0)return 0;
+  if(onCourt(a).length>=totalCap(a))return 0;
   const groups=[];
   inLine(a).forEach(p=>{const g=groups.find(x=>p.group&&x.id===p.group);if(g)g.list.push(p);else groups.push({id:p.group||p.id,list:[p]})});
   let n=0;
   for(const g of groups){
-    if(free<=0)break;
-    if(g.list.length<=free){g.list.forEach(enterCourt);free-=g.list.length;n+=g.list.length}
-    else if(g.list.length>a.cap&&onCourt(a).length===0){g.list.slice(0,free).forEach(enterCourt);n+=free;free=0}
+    const size=g.list.length;
+    let c=bestCourt(a,Math.min(size,a.cap));
+    if(!c)continue;
+    if(size<=a.cap){g.list.forEach(p=>enterCourt(p,c));n+=size}
+    else{ // a group bigger than one court spreads over the emptiest courts
+      let rest=g.list.slice();
+      while(rest.length&&(c=bestCourt(a,1))){const f=a.cap-courtList(a,c).length;rest.splice(0,f).forEach(p=>enterCourt(p,c));}
+      n+=size-rest.length;
+    }
   }
   return n;
+}
+/* After a change of courts or places: players beyond the last court move to a free place, or go back to the front of the line */
+function reflowCourts(a){
+  const extra=onCourt(a).filter(p=>p.court>a.nCourts);
+  const front=Math.min(0,...inLine(a).map(x=>x.q))-extra.length-1;
+  extra.forEach((p,i)=>{
+    const c=bestCourt(a,1);
+    if(c)p.court=c;else{leaveCourt(p);p.state="wait";p.q=front+i;p.waitSince=nowMs();p.group=null}
+  });
 }
 function arrive(a,names){
   const gid=names.length>1?uid():null;
@@ -767,12 +789,12 @@ const overTime=a=>onCourt(a).filter(p=>nowMs()-p.onAt>=a.limit*60000);
    The longest-playing go out first and join the back of the line. */
 function rotate(a){
   const over=overTime(a), line=inLine(a);
-  const free=a.cap-onCourt(a).length;
+  const free=Math.max(0,totalCap(a)-onCourt(a).length);
   const comeIn=Math.min(line.length,over.length+free);
   const goOut=Math.max(0,comeIn-free);
   const outs=over.slice(0,goOut), ins=line.slice(0,comeIn);
   outs.forEach(p=>{leaveCourt(p);p.state="out"});
-  ins.forEach(enterCourt);
+  ins.forEach(p=>enterCourt(p,bestCourt(a,1)||1));
   outs.forEach(p=>enqueue(a,p,null));
   return {ins,outs};
 }
@@ -782,15 +804,19 @@ function renderFlow(a){
   const court=onCourt(a), line=inLine(a), left=gone(a);
   let h=`<div id="rot-banner">${flowBanner(a)}</div>`;
   h+=`<div class="dur" role="group" aria-label="Temps max sur le terrain"><b>Temps max</b>${[6,7,8,9,10,15].map(v=>`<button aria-pressed="${a.limit===v}" data-act="flow-limit" data-v="${v}">${v}'</button>`).join("")}</div>`;
-  h+=`<div class="dur" role="group" aria-label="Joueurs max sur le terrain"><b>Joueurs max</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
+  h+=`<div class="dur" role="group" aria-label="Nombre de terrains"><b>Terrains</b><button data-act="flow-courts" data-v="${a.nCourts-1}"${a.nCourts<=1?" disabled":""} aria-label="Un terrain de moins">−</button><span class="capn">${a.nCourts}</span><button data-act="flow-courts" data-v="${a.nCourts+1}"${a.nCourts>=12?" disabled":""} aria-label="Un terrain de plus">+</button></div>`;
+  h+=`<div class="dur" role="group" aria-label="Joueurs max par terrain"><b>Joueurs max${a.nCourts>1?" par terrain":""}</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
   h+=`<form class="panel stack" id="arrive-form"><label class="f">Arrivée : prénom, ou plusieurs prénoms séparés par des virgules pour un groupe<input type="text" id="arrive-names" placeholder="Lucas  ·  ou  Emma, Noé, Lina" autocomplete="off" enterkeyhint="done"></label><div><button type="submit" class="btn-ball">Ajouter</button></div><p class="note">Un groupe entre ensemble dès qu'il y a assez de place. Sinon il attend en tête de file.</p></form>`;
-  h+=`<section class="stack" style="margin-top:18px"><h2>Sur le terrain · ${court.length}/${a.cap}</h2><div class="list">`;
-  court.forEach(p=>{
+  for(let c=1;c<=a.nCourts;c++){
+  const cl=courtList(a,c);
+  h+=`<section class="stack" style="margin-top:18px"><h2>${a.nCourts>1?"Terrain "+c:"Sur le terrain"} · ${cl.length}/${a.cap}</h2><div class="list">`;
+  cl.forEach(p=>{
     h+=`<div class="li pl" data-pid="${p.id}"><div class="grow"><b class="pname">${esc(p.name)}</b><div class="note">${p.passes>1?p.passes+"e passage":"1er passage"}</div></div><span class="ptime" data-on="${p.onAt}">0:00</span><div class="row"><button class="btn-sm" data-act="flow-out" data-id="${p.id}">Sortir</button><button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
   });
-  const freeN=a.cap-court.length;
+  const freeN=a.cap-cl.length;
   if(freeN>0)h+=`<div class="li slot"><span class="muted">${freeN} place${freeN>1?"s":""} libre${freeN>1?"s":""}</span></div>`;
   h+=`</div></section>`;
+  }
   h+=`<section class="stack" style="margin-top:18px"><h2>En attente · ${line.length}</h2>`;
   if(!line.length)h+=`<p class="muted">Personne n'attend.</p>`;
   else{
@@ -798,7 +824,7 @@ function renderFlow(a){
     let prevG=null;
     line.forEach((p,i)=>{
       const grouped=p.group&&line.some(x=>x!==p&&x.group===p.group);
-      h+=`<div class="li${grouped?" grp":""}${grouped&&prevG===p.group?" grp-next":""}"><span class="qn">${i+1}</span><div class="grow"><b>${esc(p.name)}</b><div class="note">${grouped?"en groupe · ":""}attend depuis <span data-wait="${p.waitSince}">0 min</span></div></div><div class="row">${court.length<a.cap?`<button class="btn-sm" data-act="flow-in" data-id="${p.id}">Faire entrer</button>`:""}<button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
+      h+=`<div class="li${grouped?" grp":""}${grouped&&prevG===p.group?" grp-next":""}"><span class="qn">${i+1}</span><div class="grow"><b>${esc(p.name)}</b><div class="note">${grouped?"en groupe · ":""}attend depuis <span data-wait="${p.waitSince}">0 min</span></div></div><div class="row">${court.length<totalCap(a)?`<button class="btn-sm" data-act="flow-in" data-id="${p.id}">Faire entrer</button>`:""}<button class="btn-ghost btn-sm" data-act="flow-leave" data-id="${p.id}">Part</button></div></div>`;
       prevG=p.group;
     });
     h+=`</div>`;
@@ -826,12 +852,13 @@ function renderFlowStats(a){
 function flowAct(a,act,el){
   const p=el.dataset.id&&a.players.find(x=>x.id===el.dataset.id);
   if(act==="flow-limit"){a.limit=+el.dataset.v;commit(a);toast(`Alerte après ${a.limit} minutes sur le terrain`);return true}
-  if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max sur le terrain`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).length>a.cap?" · fais sortir quelqu'un":""));return true}
+  if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max${a.nCourts>1?" par terrain":""}`+(n?` · ${n} entré${n>1?"s":""}`:"")+(onCourt(a).some(p=>courtList(a,p.court).length>a.cap)?" · fais sortir quelqu'un":""));return true}
+  if(act==="flow-courts"){a.nCourts=Math.max(1,Math.min(12,+el.dataset.v));reflowCourts(a);const n=fillCourt(a);commit(a);toast(`${a.nCourts} terrain${a.nCourts>1?"s":""}`+(n?` · ${n} entré${n>1?"s":""}`:""));return true}
   if(act==="flow-out"){leaveCourt(p);p.state="out";fillCourt(a);enqueue(a,p,null);commit(a);toast(p.name+" sort et repasse en fin de file");return true}
   if(act==="flow-leave"){leaveCourt(p);p.state="left";p.group=null;fillCourt(a);commit(a);toast(p.name+" est parti");return true}
   if(act==="flow-in"){
-    if(onCourt(a).length>=a.cap){toast("Le terrain est complet");return true}
-    enterCourt(p);commit(a);return true}
+    const c=bestCourt(a,1);if(!c){toast("Les terrains sont complets");return true}
+    enterCourt(p,c);commit(a);return true}
   if(act==="flow-back"){enqueue(a,p,null);fillCourt(a);commit(a);toast(p.name+" revient dans la file");return true}
   if(act==="flow-rotate"){
     const r=rotate(a);commit(a);
@@ -871,7 +898,7 @@ $app.addEventListener("submit",e=>{
     const fmt=document.getElementById("f-format").value, flow=fmt==="rotation";
     const names=flow?[]:parseNames(document.getElementById("f-players").value);
     const a=newAnimation({name,date:document.getElementById("f-date").value||today(),type:document.getElementById("f-type").value,format:fmt,
-      live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:clampInt(document.getElementById("f-cap").value,2,30,4),limit:+document.getElementById("f-limit").value});
+      live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:clampInt(document.getElementById("f-cap").value,2,30,4),nCourts:clampInt(document.getElementById("f-courts").value,1,12,1),limit:+document.getElementById("f-limit").value});
     view.creating=false;view.animId=a.id;view.tab=flow?"terrain":names.length?(a.format==="defis"?"defis":"matchs"):"joueurs";commit(a);
   }
   if(e.target.id==="arrive-form"){
