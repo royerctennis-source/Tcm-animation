@@ -100,6 +100,12 @@ textarea{min-height:120px;resize:vertical}
 .chip-over{background:var(--danger);color:#fff}
 .chip-next{background:var(--bg);color:var(--muted)}
 .wrow{padding:12px 14px}
+.tbox{display:flex;flex-direction:column;align-items:flex-end;line-height:1}
+.tlbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.pl.over .tlbl{color:var(--danger)}
+.tag-next{display:none;color:var(--danger);font-weight:700}
+.pl.next-out .tag-next{display:inline}
+.pl.next-out{box-shadow:inset 5px 0 0 var(--danger)}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -835,6 +841,8 @@ function rotate(a){
   return {ins,outs};
 }
 const fmtDur=ms=>{const s=Math.max(0,Math.floor(ms/1000));const h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?h+" h "+String(m).padStart(2,"0"):m+" min"};
+/* chrono: time played, then once the limit is reached the time over the limit, as +m:ss */
+function chronoTxt(a,on){const el=nowMs()-on, lim=a.limit*60000;return el>=lim?"+"+mmss(el-lim):mmss(el)}
 const untilTxt=at=>{const ms=at-nowMs();return ms<=0?"maintenant":mmss(ms)};
 function courtChips(a,attrs,sel){
   let h="";
@@ -868,12 +876,13 @@ function renderFlow(a){
     <div><button type="submit" class="btn-ball">Ajouter</button></div>
   </form>`;
   if(view.pick&&view.pick.from==="arrive"){const t=a.teams.find(x=>x.id===view.pick.id);if(t&&t.state==="wait")h+=pickPanel(a,t,view.pick.c)}
+  const nextOut=line.length?overTime(a)[0]:null;
   for(let c=1;c<=a.nCourts;c++){
     const cl=courtList(a,c), used=usedOn(a,c), free=a.cap-used, over=cl.filter(t=>isOver(a,t));
     const at=cl.length?cl[0].onAt+a.limit*60000:null;
     h+=`<section class="stack" style="margin-top:18px"><div class="court-h"><h2>${a.nCourts>1?"Terrain "+c:"Sur le terrain"} · ${used}/${a.cap}</h2>${free>0?`<span class="chip-free">${free} libre${free>1?"s":""}</span>`:over.length?`<span class="chip-over">${over.length} temps fini</span>`:`<span class="chip-next">fin de temps dans <b data-until="${at}">${untilTxt(at)}</b></span>`}</div><div class="list">`;
     cl.forEach(t=>{
-      h+=`<div class="li pl" data-pid="${t.id}"><div class="grow"><b class="pname">${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"seul"}</div></div><span class="ptime" data-on="${t.onAt}">0:00</span><button class="btn-sm" data-act="flow-done" data-id="${t.id}">Fini</button></div>`;
+      h+=`<div class="li pl${isOver(a,t)?" over":""}${nextOut&&nextOut.id===t.id?" next-out":""}" data-pid="${t.id}"><div class="grow"><b class="pname">${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"seul"}<span class="tag-next"> · prochaine à changer</span></div></div><div class="tbox"><span class="ptime" data-on="${t.onAt}">${chronoTxt(a,t.onAt)}</span><span class="tlbl">${isOver(a,t)?"dépassé":"joué"}</span></div><button class="btn-sm" data-act="flow-done" data-id="${t.id}">Fini</button></div>`;
     });
     if(free>0)h+=`<div class="li slot"><span class="muted">${free} place${free>1?"s":""} libre${free>1?"s":""}</span></div>`;
     h+=`</div></section>`;
@@ -951,11 +960,12 @@ const flowRung=new Set();let flowDue=false;
 function flowTick(a){
   const banner=document.getElementById("rot-banner");if(!banner)return;
   const lim=a.limit*60000;
+  const waiting=inLine(a).length>0, first=waiting?overTime(a)[0]:null;
   document.querySelectorAll("[data-on]").forEach(s=>{
     const on=+s.dataset.on, el=nowMs()-on;
-    s.textContent=mmss(el);
+    s.textContent=chronoTxt(a,on);
     const row=s.closest(".pl");const over=el>=lim;
-    if(row)row.classList.toggle("over",over);
+    if(row){row.classList.toggle("over",over);row.classList.toggle("next-out",!!first&&row.dataset.pid===first.id);const l=row.querySelector(".tlbl");if(l)l.textContent=over?"dépassé":"joué"}
     const key=s.closest("[data-pid]").dataset.pid+"@"+on;
     if(over&&!flowRung.has(key)){flowRung.add(key);flowDue=true;if(inLine(a).length){beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}}
   });
@@ -1015,4 +1025,79 @@ $app.addEventListener("click",e=>{
     case "open":{const o=norm(store.animations[el.dataset.id]);if(o.matches.length&&byStatus(o,"playing").length&&available(o).length>=need(o)){refill(o);o.updatedAt=Date.now();saveLocal();queueDb(o.id)}}
       view.animId=el.dataset.id;view.tab="matchs";view.editMatch=null;view.openPlayer=null;render();window.scrollTo(0,0);break;
     case "home":view.animId=null;render();window.scrollTo(0,0);break;
-    case "tab":view.tab=el.dataset.tab;render();br
+    case "tab":view.tab=el.dataset.tab;render();break;
+    case "start":case "refill":{refill(a);commit(a);const p=byStatus(a,"playing").length;if(p<a.live)toast(`${p} matchs en jeu : pas assez de joueuses pour en lancer plus.`);break;}
+    case "back":case "defi-win":{
+      const m=findM();m.status="done";m.endedAt=Date.now();m.defiCount=act==="defi-win"?1:0;
+      const before=byStatus(a,"planned")[0];
+      refill(a,m);commit(a);
+      if(before&&before.status==="playing")toast(`Match ${before.seq} part : ${team(a,before.a)} contre ${team(a,before.b)}`);
+      break;}
+    case "undo-back":{const m=findM();m.status="playing";m.endedAt=null;m.backAt=null;view.editMatch=null;commit(a);toast("Match remis en jeu");break;}
+    case "redraw":{const m=findM();if(!redrawMatch(a,m))toast("Pas d'autre tirage possible pour l'instant.");commit(a);break;}
+    case "set-live":{a.live=+el.dataset.v;refill(a);commit(a);toast(`${a.live} matchs en même temps : les prochains retours ne relancent pas de match tant qu'on n'est pas redescendu à ${a.live}.`);break;}
+    case "dur":{a.duration=el.dataset.v?+el.dataset.v:null;commit(a);toast(a.duration?`Matchs de ${a.duration} minutes`:"Matchs sans limite de temps");break;}
+    case "defi-plus":{const m=findM();m.defiCount=(m.defiCount||0)+1;commit(a);break;}
+    case "defi-minus":{const m=findM();m.defiCount=Math.max(0,(m.defiCount||0)-1);commit(a);break;}
+    case "win":{const m=findM();m.winner=m.winner===el.dataset.w?null:el.dataset.w;commit(a);break;}
+    case "edit-match":view.editMatch=view.editMatch===el.dataset.id?null:el.dataset.id;render();break;
+    case "add-players":{const names=parseNames(document.getElementById("add-players").value);if(!names.length)return;names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));commit(a);toast(names.length+" ajoutée(s)");break;}
+    case "pause":case "remove-confirm":{
+      const p=a.players.find(x=>x.id===el.dataset.id);
+      if(act==="pause")p.present=false;
+      else{view.confirmRemove=null;if(a.matches.some(m=>m.a.concat(m.b).includes(p.id)))p.removed=true;else a.players=a.players.filter(x=>x.id!==p.id)}
+      const n=dropFromPlanned(a,p.id);
+      const live=isPlaying(a,p.id);
+      commit(a);
+      toast(`${p.name} ${act==="pause"?"en pause":"retirée"}${n?" · prochain match retiré":""}${live?" · son match en cours continue":""}`);
+      break;}
+    case "resume":case "restore":{const p=a.players.find(x=>x.id===el.dataset.id);p.present=true;p.removed=false;if(a.matches.length)refill(a);commit(a);toast(p.name+" reprend les tirages");break;}
+    case "remove-player":view.confirmRemove=el.dataset.id;render();break;
+    case "remove-cancel":view.confirmRemove=null;render();break;
+    case "add-defi":{
+      const v=document.getElementById("new-defi").value.trim();if(!v)return;
+      const d={id:uid(),text:v};a.defis.push(d);
+      if(!a.currentDefi)setCurrentDefi(a,d.id);
+      commit(a);toast(a.currentDefi===d.id?"Défi ajouté et mis en jeu":"Défi ajouté. Coche « En jeu » pour le jouer.");
+      setTimeout(()=>{const f=document.getElementById("new-defi");f&&f.focus()},0);break;}
+    case "del-defi":a.defis=a.defis.filter(d=>d.id!==el.dataset.id);if(a.currentDefi===el.dataset.id)setCurrentDefi(a,null);commit(a);break;
+    case "open-player":view.openPlayer=view.openPlayer===el.dataset.id?null:el.dataset.id;render();break;
+    case "delete":view.confirmDel=a.id;render();break;
+    case "delete-cancel":view.confirmDel=null;render();break;
+    case "delete-confirm":{const id=a.id;delete store.animations[id];saveLocal();queueDb(id);view.animId=null;view.confirmDel=null;render();toast("Animation supprimée");break;}
+  }
+});
+$app.addEventListener("change",e=>{
+  if(e.target.id==="f-format"){const fl=e.target.value==="rotation";document.getElementById("fs-rot").hidden=!fl;document.getElementById("fs-match").hidden=fl;return}
+  const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
+  const a=anim();if(!a)return;
+  const m=a.matches.find(x=>x.id===el.dataset.id);
+  if(act==="score"){m.score=el.value.trim();commit(a)}
+  if(act==="defi-ok"){m.defiCount=el.checked?1:0;commit(a)}
+  if(act==="match-defi"){m.defiId=el.value||null;m.defiCount=0;commit(a)}
+  if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
+  if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
+});
+$app.addEventListener("input",e=>{if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent="TEAM "+(e.target.value.trim()||"Prénom")}});
+$app.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
+});
+let audio=null;const rung=new Set();
+document.addEventListener("pointerdown",()=>{if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},{once:false});
+function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTime+t+0.3)})}catch(e){}}
+setInterval(()=>{
+  const a=view.animId&&store.animations[view.animId];if(!a)return;
+  if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
+  document.querySelectorAll(".court[data-mid]").forEach(card=>{
+    const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
+    const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
+    if(c.over&&!rung.has(m.id)){rung.add(m.id);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
+  });
+},1000);
+
+loadLocal();render();connectDb();
+})();
+</script>
+
+<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
+</body></html>
