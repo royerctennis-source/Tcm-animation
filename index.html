@@ -106,6 +106,10 @@ textarea{min-height:120px;resize:vertical}
 .tag-next{display:none;color:var(--danger);font-weight:700}
 .pl.next-out .tag-next{display:inline}
 .pl.next-out{box-shadow:inset 5px 0 0 var(--danger)}
+.pl.tm{border-top-color:transparent}
+.pl.tm-first{border-top-color:var(--line)}
+.pl.tm .pname{font-size:.95rem}
+.pl.tm:not(.tm-first) .tag-next{display:none}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -882,7 +886,11 @@ function renderFlow(a){
     const at=cl.length?cl[0].onAt+a.limit*60000:null;
     h+=`<section class="stack" style="margin-top:18px"><div class="court-h"><h2>${a.nCourts>1?"Terrain "+c:"Sur le terrain"} · ${used}/${a.cap}</h2>${free>0?`<span class="chip-free">${free} libre${free>1?"s":""}</span>`:over.length?`<span class="chip-over">${over.length} temps fini</span>`:`<span class="chip-next">fin de temps dans <b data-until="${at}">${untilTxt(at)}</b></span>`}</div><div class="list">`;
     cl.forEach(t=>{
-      h+=`<div class="li pl${isOver(a,t)?" over":""}${nextOut&&nextOut.id===t.id?" next-out":""}" data-pid="${t.id}"><div class="grow"><b class="pname">${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"seul"}<span class="tag-next"> · prochaine à changer</span></div></div><div class="tbox"><span class="ptime" data-on="${t.onAt}">${chronoTxt(a,t.onAt)}</span><span class="tlbl">${isOver(a,t)?"dépassé":"joué"}</span></div><button class="btn-sm" data-act="flow-done" data-id="${t.id}">Fini</button></div>`;
+      // one line per player; the team's name, chrono and "Fini" are on each team's first line
+      for(let k=0;k<t.size;k++){
+        const first=k===0;
+        h+=`<div class="li pl${isOver(a,t)?" over":""}${nextOut&&nextOut.id===t.id?" next-out":""}${t.size>1?" tm":""}${first?" tm-first":""}${k===t.size-1?" tm-last":""}" data-pid="${t.id}"><div class="grow"><b class="pname">${esc(tName(t))}</b><div class="note">${t.size>1?"joueur "+(k+1)+"/"+t.size:"seul"}${first?`<span class="tag-next"> · prochaine à changer</span>`:""}</div></div><div class="tbox"><span class="ptime" data-on="${t.onAt}">${chronoTxt(a,t.onAt)}</span><span class="tlbl">${isOver(a,t)?"dépassé":"joué"}</span></div>${first?`<button class="btn-sm" data-act="flow-done" data-id="${t.id}">Fini</button>`:`<button class="btn-ghost btn-sm" data-act="flow-part" data-id="${t.id}" aria-label="Un joueur de ${esc(tName(t))} s'en va">Part</button>`}</div>`;
+      }
     });
     if(free>0)h+=`<div class="li slot"><span class="muted">${free} place${free>1?"s":""} libre${free>1?"s":""}</span></div>`;
     h+=`</div></section>`;
@@ -948,6 +956,9 @@ function flowAct(a,act,el){
     view.pick=null;commit(a);toast(`${tName(t)} → terrain ${c}${outs.length?" · fin pour "+outs.map(tName).join(", "):""}`);return true}
   if(act==="flow-want"){t.want=c;fillCourt(a);commit(a);toast(`Terrain ${c} réservé pour ${tName(t)}`);return true}
   if(act==="flow-unwant"){t.want=null;fillCourt(a);commit(a);return true}
+  if(act==="flow-part"){
+    t.size=Math.max(1,t.size-1);a.log.players++;fillCourt(a);commit(a);
+    toast(`Un joueur quitte ${t.size>1?"TEAM "+t.name:t.name} · ${t.size} restant${t.size>1?"s":""}`);return true}
   if(act==="flow-pick-close"){view.pick=null;render();return true}
   if(act==="flow-done"){const was=t.state;finish(a,t);fillCourt(a);if(view.pick&&view.pick.id===t.id)view.pick=null;commit(a);toast(was==="court"?`${tName(t)} : terminé`:`${tName(t)} retiré de l'attente`);return true}
   if(act==="flow-rotate"){
@@ -1084,20 +1095,4 @@ $app.addEventListener("keydown",e=>{
 });
 let audio=null;const rung=new Set();
 document.addEventListener("pointerdown",()=>{if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},{once:false});
-function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTime+t+0.3)})}catch(e){}}
-setInterval(()=>{
-  const a=view.animId&&store.animations[view.animId];if(!a)return;
-  if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
-  document.querySelectorAll(".court[data-mid]").forEach(card=>{
-    const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
-    const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
-    if(c.over&&!rung.has(m.id)){rung.add(m.id);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
-  });
-},1000);
-
-loadLocal();render();connectDb();
-})();
-</script>
-
-<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
-</body></html>
+function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTi
