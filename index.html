@@ -1291,4 +1291,94 @@ $app.addEventListener("click",e=>{
   if(act==="dir-del"){const d=dirDoc();d.people=d.people.filter(x=>x.id!==el.dataset.id);commit(d);toast("Retiré du répertoire");return}
   if(a&&act.startsWith("flow-")&&flowAct(a,act,el))return;
   if(a&&act.startsWith("ch-")&&chAct(a,act,el))return;
- 
+  const findM=()=>a.matches.find(m=>m.id===el.dataset.id);
+  switch(act){
+    case "new":view.creating=true;render();setTimeout(()=>{const f=document.getElementById("f-name");f&&f.focus()},0);break;
+    case "cancel-new":view.creating=false;render();break;
+    case "example":{
+      const names=["Léa","Chloé","Inès","Manon","Camille","Jade","Louise","Zoé","Lina","Emma","Alice","Rose","Anna","Mila","Lou","Nina","Clara","Sarah","Julia","Eva"];
+      const x=newAnimation({name:"Exemple – Après-midi filles",date:today(),type:"simple",format:"defis",live:6,queue:2,names});
+      x.defis=[{id:uid(),text:"Gagner un point au filet"},{id:uid(),text:"Faire 5 échanges de suite"},{id:uid(),text:"Servir deux fois dans le carré"}];
+      x.currentDefi=x.defis[0].id;
+      view.animId=x.id;view.tab="matchs";commit(x);break;}
+    case "open":{const o=norm(store.animations[el.dataset.id]);if(o.matches.length&&byStatus(o,"playing").length&&available(o).length>=need(o)){refill(o);o.updatedAt=Date.now();saveLocal();queueDb(o.id)}}
+      view.animId=el.dataset.id;view.tab="matchs";view.editMatch=null;view.openPlayer=null;render();window.scrollTo(0,0);break;
+    case "home":view.animId=null;render();window.scrollTo(0,0);break;
+    case "tab":view.tab=el.dataset.tab;render();break;
+    case "start":case "refill":{refill(a);commit(a);const p=byStatus(a,"playing").length;if(p<a.live)toast(`${p} matchs en jeu : pas assez de joueuses pour en lancer plus.`);break;}
+    case "back":case "defi-win":{
+      const m=findM();m.status="done";m.endedAt=Date.now();m.defiCount=act==="defi-win"?1:0;
+      const before=byStatus(a,"planned")[0];
+      refill(a,m);commit(a);
+      if(before&&before.status==="playing")toast(`Match ${before.seq} part : ${team(a,before.a)} contre ${team(a,before.b)}`);
+      break;}
+    case "undo-back":{const m=findM();m.status="playing";m.endedAt=null;m.backAt=null;view.editMatch=null;commit(a);toast("Match remis en jeu");break;}
+    case "redraw":{const m=findM();if(!redrawMatch(a,m))toast("Pas d'autre tirage possible pour l'instant.");commit(a);break;}
+    case "set-live":{a.live=+el.dataset.v;refill(a);commit(a);toast(`${a.live} matchs en même temps : les prochains retours ne relancent pas de match tant qu'on n'est pas redescendu à ${a.live}.`);break;}
+    case "dur":{a.duration=el.dataset.v?+el.dataset.v:null;commit(a);toast(a.duration?`Matchs de ${a.duration} minutes`:"Matchs sans limite de temps");break;}
+    case "defi-plus":{const m=findM();m.defiCount=(m.defiCount||0)+1;commit(a);break;}
+    case "defi-minus":{const m=findM();m.defiCount=Math.max(0,(m.defiCount||0)-1);commit(a);break;}
+    case "win":{const m=findM();m.winner=m.winner===el.dataset.w?null:el.dataset.w;commit(a);break;}
+    case "edit-match":view.editMatch=view.editMatch===el.dataset.id?null:el.dataset.id;render();break;
+    case "add-players":{const names=parseNames(document.getElementById("add-players").value);if(!names.length)return;names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));commit(a);toast(names.length+" ajoutée(s)");break;}
+    case "pause":case "remove-confirm":{
+      const p=a.players.find(x=>x.id===el.dataset.id);
+      if(act==="pause")p.present=false;
+      else{view.confirmRemove=null;if(a.matches.some(m=>m.a.concat(m.b).includes(p.id)))p.removed=true;else a.players=a.players.filter(x=>x.id!==p.id)}
+      const n=dropFromPlanned(a,p.id);
+      const live=isPlaying(a,p.id);
+      commit(a);
+      toast(`${p.name} ${act==="pause"?"en pause":"retirée"}${n?" · prochain match retiré":""}${live?" · son match en cours continue":""}`);
+      break;}
+    case "resume":case "restore":{const p=a.players.find(x=>x.id===el.dataset.id);p.present=true;p.removed=false;if(a.matches.length)refill(a);commit(a);toast(p.name+" reprend les tirages");break;}
+    case "remove-player":view.confirmRemove=el.dataset.id;render();break;
+    case "remove-cancel":view.confirmRemove=null;render();break;
+    case "add-defi":{
+      const v=document.getElementById("new-defi").value.trim();if(!v)return;
+      const d={id:uid(),text:v};a.defis.push(d);
+      if(!a.currentDefi)setCurrentDefi(a,d.id);
+      commit(a);toast(a.currentDefi===d.id?"Défi ajouté et mis en jeu":"Défi ajouté. Coche « En jeu » pour le jouer.");
+      setTimeout(()=>{const f=document.getElementById("new-defi");f&&f.focus()},0);break;}
+    case "del-defi":a.defis=a.defis.filter(d=>d.id!==el.dataset.id);if(a.currentDefi===el.dataset.id)setCurrentDefi(a,null);commit(a);break;
+    case "open-player":view.openPlayer=view.openPlayer===el.dataset.id?null:el.dataset.id;render();break;
+    case "delete":view.confirmDel=a.id;render();break;
+    case "delete-cancel":view.confirmDel=null;render();break;
+    case "delete-confirm":{const id=a.id;delete store.animations[id];saveLocal();queueDb(id);view.animId=null;view.confirmDel=null;render();toast("Animation supprimée");break;}
+  }
+});
+$app.addEventListener("change",e=>{
+  if(e.target.id==="f-format"){const fl=e.target.value==="rotation";document.getElementById("fs-rot").hidden=!fl;document.getElementById("fs-match").hidden=fl;return}
+  const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
+  const a=anim();if(!a)return;
+  const m=a.matches.find(x=>x.id===el.dataset.id);
+  if(act==="score"){m.score=el.value.trim();commit(a)}
+  if(act==="defi-ok"){m.defiCount=el.checked?1:0;commit(a)}
+  if(act==="match-defi"){m.defiId=el.value||null;m.defiCount=0;commit(a)}
+  if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
+  if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
+});
+$app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;
+  if(e.target.id==="arrive-names")arrSuggest(e.target);
+  if(e.target.id==="dir-q"){view.dirQ=e.target.value;const pos=e.target.selectionStart;render();const q=document.getElementById("dir-q");if(q){q.focus();try{q.setSelectionRange(pos,pos)}catch(_){}}return}if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=e.target.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+(e.target.value.trim()||"Prénom")}});
+$app.addEventListener("keydown",e=>{
+  if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
+});
+let audio=null;const rung=new Set();
+document.addEventListener("pointerdown",()=>{if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},{once:false});
+function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTime+t+0.3)})}catch(e){}}
+setInterval(()=>{
+  const a=view.animId&&store.animations[view.animId];if(!a)return;
+  if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
+  document.querySelectorAll(".court[data-mid]").forEach(card=>{
+    const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
+    const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
+    if(c.over&&!rung.has(m.id)){rung.add(m.id);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
+  });
+},1000);
+
+loadLocal();render();connectDb();
+})();
+</script>
+
+<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
+</body></html>
