@@ -126,6 +126,7 @@ details summary{list-style-position:inside}
 .sugg{font-weight:500}
 .sugg b{font-weight:700}
 #arr-sugg{margin-top:-4px}
+.freeze{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--ink);color:var(--bg);border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -490,6 +491,7 @@ const canRefill=a=>available(a).length>=need(a)&&(byStatus(a,"playing").length<a
 /* ---------- rendering ---------- */
 function render(){
   if(needLogin){$app.innerHTML=renderLogin();return}
+  if(typeof syncFrozen==="function")syncFrozen();
   const y=window.scrollY;
   if(view.animId&&anim())$app.innerHTML=renderAnim(anim());
   else{view.animId=null;$app.innerHTML=renderHome()}
@@ -769,7 +771,10 @@ function renderSettings(a){
    asks for a rotation: teams whose time is up leave the court and are not kept (players sign up again,
    with whoever they like); only anonymous counts stay for the stats. */
 const isFlow=a=>a.format==="rotation";
-const nowMs=()=>Date.now();
+/* While the animation is on pause, the clock used for every chrono stays at the moment of the pause */
+let FROZEN=0;
+const nowMs=()=>FROZEN||Date.now();
+function syncFrozen(){const a=view.animId&&store.animations[view.animId];FROZEN=a&&a.format==="rotation"&&a.frozenAt?a.frozenAt:0}
 function flowNorm(a){
   if(!a.cap)a.cap=4;
   if(!a.nCourts)a.nCourts=1;
@@ -897,7 +902,9 @@ function renderFlow(a){
   const line=inLine(a);
   const arrC=view.arrC&&view.arrC<=a.nCourts?view.arrC:null;
   const arrN=Math.max(1,Math.min(a.cap,view.arrN||1));
-  let h=`<div id="rot-banner">${flowBanner(a)}</div>`;
+  let h=a.frozenAt?`<div class="freeze"><div><b>Animation en pause</b><div>Tous les chronos sont arrêtés depuis ${new Date(a.frozenAt).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})}.</div></div><button class="btn-ball" data-act="flow-resume">Reprendre</button></div>`
+    :`<div class="row" style="justify-content:flex-end;margin-bottom:8px"><button class="btn-sm" data-act="flow-freeze">⏸ Mettre l'animation en pause</button></div>`;
+  h+=`<div id="rot-banner">${a.frozenAt?"":flowBanner(a)}</div>`;
   h+=`<div class="dur" role="group" aria-label="Temps max sur le terrain"><b>Temps max</b>${[6,7,8,9,10,15].map(v=>`<button aria-pressed="${a.limit===v}" data-act="flow-limit" data-v="${v}">${v}'</button>`).join("")}</div>`;
   h+=`<div class="dur" role="group" aria-label="Nombre de terrains"><b>Terrains</b><button data-act="flow-courts" data-v="${a.nCourts-1}"${a.nCourts<=1?" disabled":""} aria-label="Un terrain de moins">−</button><span class="capn">${a.nCourts}</span><button data-act="flow-courts" data-v="${a.nCourts+1}"${a.nCourts>=12?" disabled":""} aria-label="Un terrain de plus">+</button></div>`;
   h+=`<div class="dur" role="group" aria-label="Joueurs max par terrain"><b>Joueurs max${a.nCourts>1?" par terrain":""}</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
@@ -939,7 +946,7 @@ function renderFlow(a){
   const pz=inPause(a);
   h+=`<section class="stack" style="margin-top:18px"><h2>En pause · ${playersPaused(a)} joueur${playersPaused(a)>1?"s":""}</h2>`;
   if(!pz.length)h+=`<p class="muted">Personne en pause. Un joueur qui sort du terrain arrive ici.</p>`;
-  else h+=`<div class="list">${pz.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs · ":""}en pause depuis <span data-wait="${t.pausedAt}">${fmtDur(nowMs()-t.pausedAt)}</span></div></div><div class="row"><button class="btn-sm btn-ball" data-act="flow-requeue" data-id="${t.id}">Revient dans la file</button>${t.size>1?`<button class="btn-ghost btn-sm" data-act="flow-split" data-id="${t.id}">Séparer</button>`:""}<button class="btn-ghost btn-sm" data-act="flow-done" data-id="${t.id}">Part</button></div></div>`).join("")}</div>`;
+  else h+=`<div class="list">${pz.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs · ":""}en pause depuis <span data-wait="${t.pausedAt}">${fmtDur(nowMs()-t.pausedAt)}</span></div></div><div class="row"><button class="btn-sm btn-ball" data-act="flow-requeue" data-id="${t.id}">Revient dans la file</button>${t.size>1?`<button class="btn-ghost btn-sm" data-act="flow-split" data-id="${t.id}">Séparer</button>`:""}</div></div>`).join("")}</div>`;
   return h+`</section>`;
 }
 function flowBanner(a){
@@ -974,6 +981,7 @@ function renderFlowStats(a){
     <p class="note" style="margin-top:12px">Les scores des défis et leurs classements sont dans l'onglet Défis.</p>`;
 }
 function flowArrive(a){
+  syncFrozen();
   const inp=document.getElementById("arrive-names");
   const raw=inp?inp.value:"";
   const names=parseNames(raw).map(n=>n.replace(/^team\s+/i,"")).filter(Boolean).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
@@ -996,6 +1004,12 @@ function flowArrive(a){
   }
 }
 function flowAct(a,act,el){
+  syncFrozen();
+  if(act==="flow-freeze"){a.frozenAt=Date.now();commit(a);toast("Animation en pause : chronos arrêtés");return true}
+  if(act==="flow-resume"){
+    const d=Date.now()-(a.frozenAt||Date.now());
+    a.teams.forEach(t=>{if(t.onAt)t.onAt+=d;if(t.waitSince)t.waitSince+=d;if(t.pausedAt)t.pausedAt+=d});
+    a.frozenAt=null;FROZEN=0;commit(a);toast("C'est reparti : les chronos reprennent");return true}
   const t=el.dataset.id&&a.teams.find(x=>x.id===el.dataset.id);
   const c=el.dataset.c?+el.dataset.c:null;
   if(act==="flow-limit"){a.limit=+el.dataset.v;commit(a);toast(`Alerte après ${a.limit} minutes sur le terrain`);return true}
@@ -1044,6 +1058,7 @@ function flowAct(a,act,el){
 }
 const flowRung=new Set();let flowDue=false;
 function flowTick(a){
+  syncFrozen();if(a.frozenAt)return;
   const banner=document.getElementById("rot-banner");if(!banner)return;
   const lim=a.limit*60000;
   const waiting=inLine(a).length>0, first=waiting?overTime(a)[0]:null;
