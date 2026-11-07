@@ -1044,7 +1044,7 @@ function flowAct(a,act,el){
     if(view.pick&&view.pick.id===t.id)view.pick=null;
     if(t.state==="court"){toPause(a,t);fillCourt(a);commit(a);toast(`${tName(t)} en pause`);return true}
     finish(a,t);fillCourt(a);commit(a);toast(`${tName(t)} est parti`);return true}
-  if(act==="flow-requeue"){t.paused=false;enqueue(a,t);fillCourt(a);commit(a);toast(t.state==="court"?`${tName(t)} → terrain ${t.court}`:`${tName(t)} fait la queue`);return true}
+  if(act==="flow-requeue"){t.paused=false;enqueue(a,t);commit(a);toast(`${tName(t)} revient dans la file d'attente`);return true}
   if(act==="flow-del"){finish(a,t);if(view.pick&&view.pick.id===t.id)view.pick=null;fillCourt(a);commit(a);toast(`${tName(t)} supprimé`);return true}
   if(act==="flow-split"){
     const n=t.size;t.size=1;
