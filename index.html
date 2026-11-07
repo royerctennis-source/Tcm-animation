@@ -119,6 +119,10 @@ textarea{min-height:120px;resize:vertical}
 .rkb.r2{background:#C3CBD3;color:#1E2830}
 .rkb.r3{background:#C98A55;color:#2E1600}
 details summary{list-style-position:inside}
+.pcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:8px}
+.pcol{display:flex;flex-direction:column;gap:8px;min-width:0}
+.pcol-h{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--ink);padding-bottom:4px}
+.pcol-h span{font-family:var(--display);font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -497,7 +501,7 @@ function renderHome(){
   }
   list.forEach(a=>{
     const nm=byStatus(a,"done").length;
-    if(isFlow(a)){h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Rotation au temps · ${a.nCourts>1?a.nCourts+" terrains × "+a.cap:a.cap+" max"} · ${a.limit} min</div></div><div class="n">${playersOn(a)}<small>en jeu</small></div><div class="n">${playersWaiting(a)}<small>attente</small></div></button>`;return}
+    if(isFlow(a)){h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Rotation au temps · ${a.nCourts>1?a.nCourts+" terrains × "+a.cap:a.cap+" max"} · ${a.limit} min</div></div><div class="n">${playersOn(a)}<small>en jeu</small></div><div class="n">${playersWaiting(a)+playersPaused(a)}<small>attente/pause</small></div></button>`;return}
     h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · ${a.type==="double"?"Double":"Simple"} · ${esc(FORMAT_SHORT[a.format])}</div></div><div class="n">${a.players.length}<small>inscrits</small></div><div class="n">${nm}<small>matchs</small></div></button>`;
   });
   if(sb&&online)h+=`<p class="note" style="margin-top:24px">Connecté : ${esc(userEmail)} · données synchronisées. <button class="btn-ghost btn-sm" data-act="logout">Se déconnecter</button></p>`;
@@ -773,6 +777,7 @@ function flowNorm(a){
     a.players=[];
   }
   if(!a.log)a.log={teams:0,players:0,ms:0};
+  a.teams.forEach(t=>{if(t.state==="wait"&&t.paused){t.state="pause";t.pausedAt=t.waitSince||nowMs();t.paused=false}});
   chNorm(a);
 }
 const tName=t=>t.size>1?"TEAM "+t.name:t.name;
@@ -786,10 +791,13 @@ const playersOn=a=>onCourt(a).reduce((s,t)=>s+t.size,0);
 const playersWaiting=a=>inLine(a).reduce((s,t)=>s+t.size,0);
 function enqueue(a,t){t.state="wait";t.q=++a.qn;t.waitSince=nowMs()}
 function enterCourt(t,c){t.state="court";t.court=c;t.onAt=nowMs();t.want=null;t.paused=false}
+const inPause=a=>a.teams.filter(t=>t.state==="pause").sort((x,y)=>x.pausedAt-y.pausedAt);
+const playersPaused=a=>inPause(a).reduce((s,t)=>s+t.size,0);
+function pauseNew(a,name){const x={id:uid(),name,size:1,state:"pause",court:null,onAt:null,want:null,pausedAt:nowMs()};a.teams.push(x);return x}
 /* leaving the court = going on pause, at the back of the line (counts kept for the stats) */
 function toPause(a,t){
   if(t.state==="court"&&t.onAt){a.log.teams++;a.log.players+=t.size;a.log.ms+=nowMs()-t.onAt}
-  t.onAt=null;t.want=null;t.paused=true;enqueue(a,t);
+  t.onAt=null;t.want=null;t.state="pause";t.pausedAt=nowMs();
 }
 /* leaving the animation for good */
 function finish(a,t){a.teams=a.teams.filter(x=>x!==t)}
@@ -910,17 +918,22 @@ function renderFlow(a){
     if(free>0)h+=`<div class="li slot"><span class="muted">${free} place${free>1?"s":""} libre${free>1?"s":""}</span></div>`;
     h+=`</div></section>`;
   }
-  h+=`<section class="stack" style="margin-top:18px"><h2>En attente / en pause · ${playersWaiting(a)} joueur${playersWaiting(a)>1?"s":""}</h2>`;
+  h+=`<section class="stack" style="margin-top:18px"><h2>En attente · ${playersWaiting(a)} joueur${playersWaiting(a)>1?"s":""}</h2>`;
   if(!line.length)h+=`<p class="muted">Personne n'attend.</p>`;
   else{
     h+=`<p class="note">Touche un numéro de terrain pour y envoyer le joueur ou l'équipe.</p><div class="list">`;
     line.forEach((t,i)=>{
-      h+=`<div class="stack wrow${t.size>1?" grp":""}" style="gap:8px"><div class="li" style="padding:0;border:0"><span class="qn">${i+1}</span><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.paused?"<b>en pause</b> · ":""}${t.size>1?t.size+" joueurs · ":""}${t.want?"veut le terrain "+t.want+" · ":""}attend depuis <span data-wait="${t.waitSince}">${fmtDur(nowMs()-t.waitSince)}</span></div></div><button class="btn-ghost btn-sm" data-act="flow-done" data-id="${t.id}">Part</button></div>
-        <div class="cchips"><span class="note">Terrain</span>${courtChips(a,`data-act="flow-pick" data-id="${t.id}"`,t.want)}${t.want?`<button class="btn-ghost btn-sm" data-act="flow-unwant" data-id="${t.id}">Annuler la réservation</button>`:""}${t.paused&&t.size>1?`<button class="btn-ghost btn-sm" data-act="flow-split" data-id="${t.id}">Séparer l'équipe</button>`:""}</div>
+      h+=`<div class="stack wrow${t.size>1?" grp":""}" style="gap:8px"><div class="li" style="padding:0;border:0"><span class="qn">${i+1}</span><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs · ":""}${t.want?"veut le terrain "+t.want+" · ":""}attend depuis <span data-wait="${t.waitSince}">${fmtDur(nowMs()-t.waitSince)}</span></div></div><button class="btn-ghost btn-sm" data-act="flow-done" data-id="${t.id}">Part</button></div>
+        <div class="cchips"><span class="note">Terrain</span>${courtChips(a,`data-act="flow-pick" data-id="${t.id}"`,t.want)}${t.want?`<button class="btn-ghost btn-sm" data-act="flow-unwant" data-id="${t.id}">Annuler la réservation</button>`:""}</div>
         ${view.pick&&view.pick.from==="line"&&view.pick.id===t.id?pickPanel(a,t,view.pick.c):""}</div>`;
     });
     h+=`</div>`;
   }
+  h+=`</section>`;
+  const pz=inPause(a);
+  h+=`<section class="stack" style="margin-top:18px"><h2>En pause · ${playersPaused(a)} joueur${playersPaused(a)>1?"s":""}</h2>`;
+  if(!pz.length)h+=`<p class="muted">Personne en pause. Un joueur qui sort du terrain arrive ici.</p>`;
+  else h+=`<div class="list">${pz.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs · ":""}en pause depuis <span data-wait="${t.pausedAt}">${fmtDur(nowMs()-t.pausedAt)}</span></div></div><div class="row"><button class="btn-sm btn-ball" data-act="flow-requeue" data-id="${t.id}">Revient dans la file</button>${t.size>1?`<button class="btn-ghost btn-sm" data-act="flow-split" data-id="${t.id}">Séparer</button>`:""}<button class="btn-ghost btn-sm" data-act="flow-done" data-id="${t.id}">Part</button></div></div>`).join("")}</div>`;
   return h+`</section>`;
 }
 function flowBanner(a){
@@ -930,6 +943,16 @@ function flowBanner(a){
   if(!line.length)return `<div class="panel" style="border-color:var(--ball);margin-bottom:12px"><b>${esc(names)} : ${a.limit} min terminées</b><div class="note">Personne n'attend, ${over.length>1?"ils peuvent":"ça peut"} continuer. Touche « Sortir » quand ils font une pause.</div></div>`;
   return `<div class="rot-alert"><div><b>Rotation !</b> Temps fini pour ${esc(names)} · ${playersWaiting(a)} en attente</div><button class="btn-main" data-act="flow-rotate">Faire la rotation</button></div>`;
 }
+/* Everyone currently in the animation, in three columns, with counts and a delete button */
+function renderPeople(a){
+  const total=playersOn(a)+playersWaiting(a)+playersPaused(a);
+  const col=(title,list,extra)=>{
+    const n=list.reduce((s,t)=>s+t.size,0);
+    return `<div class="pcol"><div class="pcol-h"><b>${title}</b><span>${n}</span></div>${list.length?`<div class="list">${list.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"1 joueur"}${extra?extra(t):""}</div></div><button class="btn-ghost btn-sm" data-act="flow-del" data-id="${t.id}" aria-label="Supprimer ${esc(tName(t))}">Supprimer</button></div>`).join("")}</div>`:`<p class="muted">Personne</p>`}</div>`;
+  };
+  return `<h2 style="margin-top:6px">Joueurs présents · ${total}</h2>
+  <div class="pcols">${col("Sur le terrain",onCourt(a),t=>a.nCourts>1?" · terrain "+t.court:"")}${col("En attente",inLine(a))}${col("En pause",inPause(a))}</div>`;
+}
 function renderFlowStats(a){
   const L=a.log, avg=L.teams?L.ms/L.teams:0;
   return `<div class="kpis" style="flex-wrap:wrap;gap:22px;margin-bottom:12px">
@@ -937,8 +960,10 @@ function renderFlowStats(a){
     <div><b>${L.teams}</b><span>passages</span></div>
     <div><b>${L.teams?Math.round(avg/60000):0} min</b><span>temps moyen</span></div>
     <div><b>${playersOn(a)}</b><span>sur le terrain</span></div>
-    <div><b>${playersWaiting(a)}</b><span>en attente</span></div></div>
-    <p class="note">Les scores des défis et leurs classements sont dans l'onglet Défis.</p>`;
+    <div><b>${playersWaiting(a)}</b><span>en attente</span></div>
+    <div><b>${playersPaused(a)}</b><span>en pause</span></div></div>
+    ${renderPeople(a)}
+    <p class="note" style="margin-top:12px">Les scores des défis et leurs classements sont dans l'onglet Défis.</p>`;
 }
 function flowArrive(a){
   const inp=document.getElementById("arrive-names");
@@ -968,12 +993,12 @@ function flowAct(a,act,el){
   if(act==="flow-swap"){
     const outs=sendTo(a,t,c,true);
     if(!outs){toast("Pas assez de temps fini sur ce terrain");render();return true}
-    view.pick=null;commit(a);toast(`${tName(t)} → terrain ${c}${outs.length?" · fin pour "+outs.map(tName).join(", "):""}`);return true}
+    view.pick=null;commit(a);toast(`${tName(t)} → terrain ${c}${outs.length?" · en pause : "+outs.map(tName).join(", "):""}`);return true}
   if(act==="flow-want"){t.want=c;fillCourt(a);commit(a);toast(`Terrain ${c} réservé pour ${tName(t)}`);return true}
   if(act==="flow-unwant"){t.want=null;fillCourt(a);commit(a);return true}
   if(act==="flow-part"){
     t.size=Math.max(1,t.size-1);
-    const x={id:uid(),name:"Équipier de "+t.name,size:1,state:"wait",court:null,onAt:null,want:null,paused:true};a.teams.push(x);enqueue(a,x);
+    pauseNew(a,"Équipier de "+t.name);
     fillCourt(a);commit(a);
     toast(`Un joueur de ${t.size>1?"TEAM "+t.name:t.name} passe en pause`);return true}
   if(act==="flow-pick-close"){view.pick=null;render();return true}
@@ -981,13 +1006,15 @@ function flowAct(a,act,el){
     if(view.pick&&view.pick.id===t.id)view.pick=null;
     if(t.state==="court"){toPause(a,t);fillCourt(a);commit(a);toast(`${tName(t)} en pause`);return true}
     finish(a,t);fillCourt(a);commit(a);toast(`${tName(t)} est parti`);return true}
+  if(act==="flow-requeue"){t.paused=false;enqueue(a,t);fillCourt(a);commit(a);toast(t.state==="court"?`${tName(t)} → terrain ${t.court}`:`${tName(t)} fait la queue`);return true}
+  if(act==="flow-del"){finish(a,t);if(view.pick&&view.pick.id===t.id)view.pick=null;fillCourt(a);commit(a);toast(`${tName(t)} supprimé`);return true}
   if(act==="flow-split"){
     const n=t.size;t.size=1;
-    for(let k=1;k<n;k++){const x={id:uid(),name:"Équipier "+k+" de "+t.name,size:1,state:"wait",court:null,onAt:null,want:null,paused:true};a.teams.push(x);enqueue(a,x)}
+    for(let k=1;k<n;k++)pauseNew(a,"Équipier "+k+" de "+t.name);
     commit(a);toast(`${tName(t)} séparée : ${n} joueurs seuls`);return true}
   if(act==="flow-rotate"){
     const r=rotate(a);view.pick=null;commit(a);
-    toast(r.ins.length?`Entrent : ${r.ins.map(tName).join(", ")}${r.outs.length?" · Fin pour : "+r.outs.map(tName).join(", "):""}`:"Pas de place assez grande pour l'équipe suivante : touche un numéro de terrain");
+    toast(r.ins.length?`Entrent : ${r.ins.map(tName).join(", ")}${r.outs.length?" · En pause : "+r.outs.map(tName).join(", "):""}`:"Pas de place assez grande pour l'équipe suivante : touche un numéro de terrain");
     return true}
   return false;
 }
@@ -1247,3 +1274,4 @@ loadLocal();render();connectDb();
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
 </body></html>
+
