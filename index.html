@@ -793,10 +793,12 @@ function enqueue(a,t){t.state="wait";t.q=++a.qn;t.waitSince=nowMs()}
 function enterCourt(t,c){t.state="court";t.court=c;t.onAt=nowMs();t.want=null;t.paused=false}
 const inPause=a=>a.teams.filter(t=>t.state==="pause").sort((x,y)=>x.pausedAt-y.pausedAt);
 const playersPaused=a=>inPause(a).reduce((s,t)=>s+t.size,0);
-function pauseNew(a,name){const x={id:uid(),name,size:1,state:"pause",court:null,onAt:null,want:null,pausedAt:nowMs()};a.teams.push(x);return x}
+function pauseNew(a,name,played){const x={id:uid(),name,size:1,state:"pause",court:null,onAt:null,want:null,pausedAt:nowMs(),played:played||0};a.teams.push(x);return x}
+/* time played so far, including the current turn on court */
+const playedMs=t=>(t.played||0)+(t.state==="court"&&t.onAt?nowMs()-t.onAt:0);
 /* leaving the court = going on pause, at the back of the line (counts kept for the stats) */
 function toPause(a,t){
-  if(t.state==="court"&&t.onAt){a.log.teams++;a.log.players+=t.size;a.log.ms+=nowMs()-t.onAt}
+  if(t.state==="court"&&t.onAt){a.log.teams++;a.log.players+=t.size;a.log.ms+=nowMs()-t.onAt;t.played=(t.played||0)+(nowMs()-t.onAt)}
   t.onAt=null;t.want=null;t.state="pause";t.pausedAt=nowMs();
 }
 /* leaving the animation for good */
@@ -897,8 +899,8 @@ function renderFlow(a){
   h+=`<div class="dur" role="group" aria-label="Nombre de terrains"><b>Terrains</b><button data-act="flow-courts" data-v="${a.nCourts-1}"${a.nCourts<=1?" disabled":""} aria-label="Un terrain de moins">−</button><span class="capn">${a.nCourts}</span><button data-act="flow-courts" data-v="${a.nCourts+1}"${a.nCourts>=12?" disabled":""} aria-label="Un terrain de plus">+</button></div>`;
   h+=`<div class="dur" role="group" aria-label="Joueurs max par terrain"><b>Joueurs max${a.nCourts>1?" par terrain":""}</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
   h+=`<form class="panel stack" id="arrive-form">
-    <label class="f">Arrivée : prénom (le premier joueur pour une équipe)<input type="text" id="arrive-names" value="${esc(view.arrNames||"")}" placeholder="Lucas" autocomplete="off" enterkeyhint="done"></label>
-    <div class="dur" style="margin:0" role="group" aria-label="Nombre de joueurs"><b>Joueurs</b><button type="button" data-act="flow-arrn" data-v="${arrN-1}"${arrN<=1?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn" id="arrn">${arrN}</span><button type="button" data-act="flow-arrn" data-v="${arrN+1}"${arrN>=a.cap?" disabled":""} aria-label="Un joueur de plus">+</button><span class="note" id="arrn-lbl">${arrN>1?"TEAM "+esc((view.arrNames||"Prénom").trim()||"Prénom"):"joueur seul"}</span></div>
+    <label class="f">Arrivée : un prénom, ou plusieurs séparés par des virgules pour des joueurs seuls<input type="text" id="arrive-names" value="${esc(view.arrNames||"")}" placeholder="Virginie, Maxime" autocomplete="off" enterkeyhint="done"></label>
+    <div class="dur" style="margin:0" role="group" aria-label="Nombre de joueurs"><b>Joueurs</b><button type="button" data-act="flow-arrn" data-v="${arrN-1}"${arrN<=1?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn" id="arrn">${arrN}</span><button type="button" data-act="flow-arrn" data-v="${arrN+1}"${arrN>=a.cap?" disabled":""} aria-label="Un joueur de plus">+</button><span class="note" id="arrn-lbl">${arrN>1?"TEAM "+esc((view.arrNames||"Prénom").trim()||"Prénom"):"joueur seul"}</span></div><p class="note" style="margin:-4px 0 0">Pour une TEAM : un seul prénom (le premier joueur) et le nombre de joueurs.</p><div hidden></div>
     <div class="stack" style="gap:6px"><span style="font-weight:600;font-size:.9rem">Terrain</span><div class="cchips"><button type="button" class="btn-sm cchip auto${arrC?"":" sel"}" data-act="flow-arrc" data-c="">Auto<small>le plus libre</small></button>${courtChips(a,'data-act="flow-arrc"',arrC)}</div></div>
     <div><button type="submit" class="btn-ball">Ajouter</button></div>
   </form>`;
@@ -944,11 +946,12 @@ function flowBanner(a){
   return `<div class="rot-alert"><div><b>Rotation !</b> Temps fini pour ${esc(names)} · ${playersWaiting(a)} en attente</div><button class="btn-main" data-act="flow-rotate">Faire la rotation</button></div>`;
 }
 /* Everyone currently in the animation, in three columns, with counts and a delete button */
+const fmtPlayed=ms=>{const m=Math.floor(ms/60000);return m<60?m+" min":Math.floor(m/60)+" h "+String(m%60).padStart(2,"0")};
 function renderPeople(a){
   const total=playersOn(a)+playersWaiting(a)+playersPaused(a);
   const col=(title,list,extra)=>{
     const n=list.reduce((s,t)=>s+t.size,0);
-    return `<div class="pcol"><div class="pcol-h"><b>${title}</b><span>${n}</span></div>${list.length?`<div class="list">${list.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"1 joueur"}${extra?extra(t):""}</div></div><button class="btn-ghost btn-sm" data-act="flow-del" data-id="${t.id}" aria-label="Supprimer ${esc(tName(t))}">Supprimer</button></div>`).join("")}</div>`:`<p class="muted">Personne</p>`}</div>`;
+    return `<div class="pcol"><div class="pcol-h"><b>${title}</b><span>${n}</span></div>${list.length?`<div class="list">${list.map(t=>`<div class="li"><div class="grow"><b>${esc(tName(t))}</b><div class="note">${t.size>1?t.size+" joueurs":"1 joueur"}${extra?extra(t):""} · <b>${fmtPlayed(playedMs(t))}</b> joué${t.size>1?" chacun":""}</div></div><button class="btn-ghost btn-sm" data-act="flow-del" data-id="${t.id}" aria-label="Supprimer ${esc(tName(t))}">Supprimer</button></div>`).join("")}</div>`:`<p class="muted">Personne</p>`}</div>`;
   };
   return `<h2 style="margin-top:6px">Joueurs présents · ${total}</h2>
   <div class="pcols">${col("Sur le terrain",onCourt(a),t=>a.nCourts>1?" · terrain "+t.court:"")}${col("En attente",inLine(a))}${col("En pause",inPause(a))}</div>`;
@@ -967,16 +970,25 @@ function renderFlowStats(a){
 }
 function flowArrive(a){
   const inp=document.getElementById("arrive-names");
-  const name=(inp?inp.value:"").trim().replace(/^team\s+/i,"");if(!name)return;
-  const size=Math.max(1,Math.min(a.cap,view.arrN||1));
+  const raw=inp?inp.value:"";
+  const names=parseNames(raw).map(n=>n.replace(/^team\s+/i,"")).filter(Boolean).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
+  if(!names.length)return;
   const c=view.arrC&&view.arrC<=a.nCourts?view.arrC:null;
-  const r=arrive(a,name,size,c);
+  // several names separated by commas = several separate players; one name + a number = a TEAM
+  const size=names.length>1?1:Math.max(1,Math.min(a.cap,view.arrN||1));
+  const res=names.map(n=>arrive(a,n,size,c));
   view.arrNames="";view.arrN=1;view.arrC=null;
-  view.pick=!r.placed&&r.court?{from:"arrive",id:r.t.id,c:r.court}:null;
+  const firstWait=res.find(r=>!r.placed&&r.court);
+  view.pick=firstWait?{from:"arrive",id:firstWait.t.id,c:firstWait.court}:null;
   commit(a);
   const i2=document.getElementById("arrive-names");if(i2)i2.focus();
-  const who=tName(r.t);
-  toast(r.placed?`${who} → ${a.nCourts>1?"terrain "+r.court:"sur le terrain"}`:r.court?`Terrain ${r.court} plein : ${who} en attente`:`${who} en attente`);
+  if(res.length===1){
+    const r=res[0], who=tName(r.t);
+    toast(r.placed?`${who} → ${a.nCourts>1?"terrain "+r.court:"sur le terrain"}`:r.court?`Terrain ${r.court} plein : ${who} en attente`:`${who} en attente`);
+  }else{
+    const on=res.filter(r=>r.placed).map(r=>r.t.name), wait=res.filter(r=>!r.placed).map(r=>r.t.name);
+    toast(`${res.length} joueurs ajoutés`+(on.length?` · sur le terrain : ${on.join(", ")}`:"")+(wait.length?` · en attente : ${wait.join(", ")}`:""));
+  }
 }
 function flowAct(a,act,el){
   const t=el.dataset.id&&a.teams.find(x=>x.id===el.dataset.id);
@@ -998,7 +1010,7 @@ function flowAct(a,act,el){
   if(act==="flow-unwant"){t.want=null;fillCourt(a);commit(a);return true}
   if(act==="flow-part"){
     t.size=Math.max(1,t.size-1);
-    pauseNew(a,"Équipier de "+t.name);
+    pauseNew(a,"Équipier de "+t.name,playedMs(t));
     fillCourt(a);commit(a);
     toast(`Un joueur de ${t.size>1?"TEAM "+t.name:t.name} passe en pause`);return true}
   if(act==="flow-pick-close"){view.pick=null;render();return true}
@@ -1010,7 +1022,7 @@ function flowAct(a,act,el){
   if(act==="flow-del"){finish(a,t);if(view.pick&&view.pick.id===t.id)view.pick=null;fillCourt(a);commit(a);toast(`${tName(t)} supprimé`);return true}
   if(act==="flow-split"){
     const n=t.size;t.size=1;
-    for(let k=1;k<n;k++)pauseNew(a,"Équipier "+k+" de "+t.name);
+    for(let k=1;k<n;k++)pauseNew(a,"Équipier "+k+" de "+t.name,playedMs(t));
     commit(a);toast(`${tName(t)} séparée : ${n} joueurs seuls`);return true}
   if(act==="flow-rotate"){
     const r=rotate(a);view.pick=null;commit(a);
@@ -1251,27 +1263,9 @@ $app.addEventListener("change",e=>{
   if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
   if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
 });
-$app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent="TEAM "+(e.target.value.trim()||"Prénom")}});
+$app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=e.target.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+(e.target.value.trim()||"Prénom")}});
 $app.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
 });
 let audio=null;const rung=new Set();
-document.addEventListener("pointerdown",()=>{if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}},{once:false});
-function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.setValueAtTime(0.25,audio.currentTime+t);g.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+t+0.25);o.connect(g).connect(audio.destination);o.start(audio.currentTime+t);o.stop(audio.currentTime+t+0.3)})}catch(e){}}
-setInterval(()=>{
-  const a=view.animId&&store.animations[view.animId];if(!a)return;
-  if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
-  document.querySelectorAll(".court[data-mid]").forEach(card=>{
-    const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
-    const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
-    if(c.over&&!rung.has(m.id)){rung.add(m.id);beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}
-  });
-},1000);
-
-loadLocal();render();connectDb();
-})();
-</script>
-
-<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
-</body></html>
-
+document.addEventListen
