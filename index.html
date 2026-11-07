@@ -123,6 +123,9 @@ details summary{list-style-position:inside}
 .pcol{display:flex;flex-direction:column;gap:8px;min-width:0}
 .pcol-h{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--ink);padding-bottom:4px}
 .pcol-h span{font-family:var(--display);font-size:1.5rem;font-weight:700;font-variant-numeric:tabular-nums}
+.sugg{font-weight:500}
+.sugg b{font-weight:700}
+#arr-sugg{margin-top:-4px}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -493,7 +496,7 @@ function render(){
   window.scrollTo(0,y);
 }
 function renderHome(){
-  const list=Object.values(store.animations).map(norm).sort((x,y)=>(y.date||"").localeCompare(x.date||"")||y.createdAt-x.createdAt);
+  const list=Object.values(store.animations).filter(a=>!isDirId(a.id)).map(norm).sort((x,y)=>(y.date||"").localeCompare(x.date||"")||y.createdAt-x.createdAt);
   let h=`<header class="top"><div><div class="eyebrow">Tennis Club · animations</div><h1>TCM Animation</h1></div><div class="ballmark" aria-hidden="true"></div></header><div class="stack">`;
   h+=view.creating?renderCreate():`<button class="btn-ball" data-act="new">+ Nouvelle animation</button>`;
   if(!list.length&&!view.creating){
@@ -900,6 +903,7 @@ function renderFlow(a){
   h+=`<div class="dur" role="group" aria-label="Joueurs max par terrain"><b>Joueurs max${a.nCourts>1?" par terrain":""}</b><button data-act="flow-cap" data-v="${a.cap-1}"${a.cap<=2?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn">${a.cap}</span><button data-act="flow-cap" data-v="${a.cap+1}"${a.cap>=30?" disabled":""} aria-label="Un joueur de plus">+</button></div>`;
   h+=`<form class="panel stack" id="arrive-form">
     <label class="f">Arrivée : un prénom, ou plusieurs séparés par des virgules pour des joueurs seuls<input type="text" id="arrive-names" value="${esc(view.arrNames||"")}" placeholder="Virginie, Maxime" autocomplete="off" enterkeyhint="done"></label>
+    <div id="arr-sugg" class="cchips" hidden></div>
     <div class="dur" style="margin:0" role="group" aria-label="Nombre de joueurs"><b>Joueurs</b><button type="button" data-act="flow-arrn" data-v="${arrN-1}"${arrN<=1?" disabled":""} aria-label="Un joueur de moins">−</button><span class="capn" id="arrn">${arrN}</span><button type="button" data-act="flow-arrn" data-v="${arrN+1}"${arrN>=a.cap?" disabled":""} aria-label="Un joueur de plus">+</button><span class="note" id="arrn-lbl">${arrN>1?"TEAM "+esc((view.arrNames||"Prénom").trim()||"Prénom"):"joueur seul"}</span></div><p class="note" style="margin:-4px 0 0">Pour une TEAM : un seul prénom (le premier joueur) et le nombre de joueurs.</p><div hidden></div>
     <div class="stack" style="gap:6px"><span style="font-weight:600;font-size:.9rem">Terrain</span><div class="cchips"><button type="button" class="btn-sm cchip auto${arrC?"":" sel"}" data-act="flow-arrc" data-c="">Auto<small>le plus libre</small></button>${courtChips(a,'data-act="flow-arrc"',arrC)}</div></div>
     <div><button type="submit" class="btn-ball">Ajouter</button></div>
@@ -966,6 +970,7 @@ function renderFlowStats(a){
     <div><b>${playersWaiting(a)}</b><span>en attente</span></div>
     <div><b>${playersPaused(a)}</b><span>en pause</span></div></div>
     ${renderPeople(a)}
+    ${renderDir()}
     <p class="note" style="margin-top:12px">Les scores des défis et leurs classements sont dans l'onglet Défis.</p>`;
 }
 function flowArrive(a){
@@ -996,6 +1001,13 @@ function flowAct(a,act,el){
   if(act==="flow-limit"){a.limit=+el.dataset.v;commit(a);toast(`Alerte après ${a.limit} minutes sur le terrain`);return true}
   if(act==="flow-cap"){a.cap=Math.max(2,Math.min(30,+el.dataset.v));const n=fillCourt(a);commit(a);toast(`${a.cap} joueurs max${a.nCourts>1?" par terrain":""}`+(n?` · ${n} entré${n>1?"s":""}`:""));return true}
   if(act==="flow-courts"){a.nCourts=Math.max(1,Math.min(12,+el.dataset.v));reflowCourts(a);const n=fillCourt(a);commit(a);toast(`${a.nCourts} terrain${a.nCourts>1?"s":""}`+(n?` · ${n} entré${n>1?"s":""}`:""));return true}
+  if(act==="flow-sugg"){
+    const inp=document.getElementById("arrive-names");if(!inp)return true;
+    const parts=inp.value.split(",");parts[parts.length-1]=(parts.length>1?" ":"")+el.dataset.v;
+    inp.value=parts.join(",");view.arrNames=inp.value;
+    const box=document.getElementById("arr-sugg");if(box){box.hidden=true;box.innerHTML=""}
+    const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=inp.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+inp.value.trim();
+    inp.focus();return true}
   if(act==="flow-arrc"){view.arrC=c;document.querySelectorAll('[data-act="flow-arrc"]').forEach(b=>b.classList.toggle("sel",(+b.dataset.c||null)===c));return true}
   if(act==="flow-arrn"){view.arrN=Math.max(1,Math.min(a.cap,+el.dataset.v));render();const i=document.getElementById("arrive-names");if(i&&!i.value)i.focus();return true}
   if(act==="flow-pick"){
@@ -1107,7 +1119,7 @@ function renderDefisFlow(a){
   let h=`<div class="cchips" role="tablist" style="margin-bottom:12px">${a.challenges.map((c,i)=>`<button class="btn-sm chtab${sel===c.id?" sel":""}" data-act="ch-sel" data-id="${c.id}">Défi ${i+1}<small>${esc(c.name)}</small></button>`).join("")}</div>`;
   if(!sel)return h+`<p class="muted">Aucun défi : ajoute-en un ci-dessous.</p>`+renderChManage(a);
   const ch=a.challenges.find(c=>c.id===sel), K=CH_KINDS[ch.kind];
-  const names=[...new Set(a.results.map(r=>r.name).concat((a.teams||[]).map(t=>t.name)))].sort((x,y)=>x.localeCompare(y,"fr"));
+  const names=[...new Set(a.results.map(r=>r.name).concat((a.teams||[]).map(t=>t.name),dirDoc().people.map(fullName)))].sort((x,y)=>x.localeCompare(y,"fr"));
   h+=`<form class="panel stack" id="ch-form">
     <div><h2>${esc(ch.name)}</h2><div class="note">${ch.kind==="time"?"En temps : le 1er est le plus rapide":ch.kind==="points"?"En points : le 1er est celui qui a le plus de points":"En balles : le 1er est celui qui en a le plus"} · seul le meilleur score de chaque joueur compte</div></div>
     <div class="grid2">
@@ -1159,6 +1171,86 @@ function chAct(a,act,el){
   return false;
 }
 
+/* ---------- répertoire du club (nom, prénom), commun à toutes les animations ----------
+   Stored as one special record next to the animations, so it syncs the same way. */
+const DIR_ID="__repertoire__";
+const isDirId=id=>String(id).startsWith("__");
+function dirDoc(){
+  let d=store.animations[DIR_ID];
+  if(!d){d={id:DIR_ID,kind:"dir",people:[],updatedAt:0};store.animations[DIR_ID]=d}
+  if(!d.people)d.people=[];
+  return d;
+}
+const fold=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+const cap1=s=>s.split(/([\s-])/).map(w=>w&&!/[\s-]/.test(w)?w.charAt(0).toLocaleUpperCase("fr")+w.slice(1).toLocaleLowerCase("fr"):w).join("");
+const fullName=p=>(p.prenom+" "+p.nom).trim();
+function dirSearch(q,max){
+  q=fold(q);if(!q)return [];
+  const ppl=dirDoc().people;
+  const starts=ppl.filter(p=>fold(p.prenom).startsWith(q)||fold(p.nom).startsWith(q)||fold(fullName(p)).startsWith(q));
+  const inside=ppl.filter(p=>!starts.includes(p)&&fold(fullName(p)).includes(q));
+  const byFirst=p=>fold(p.prenom).startsWith(q)?0:1; // first-name matches come first
+  return starts.sort((x,y)=>byFirst(x)-byFirst(y)||fold(x.prenom).localeCompare(fold(y.prenom))).concat(inside).slice(0,max||6);
+}
+function dirAdd(prenom,nom){
+  prenom=cap1(prenom.trim());nom=cap1(nom.trim());
+  if(!prenom&&!nom)return false;
+  const d=dirDoc();
+  if(d.people.some(p=>fold(p.prenom)===fold(prenom)&&fold(p.nom)===fold(nom)))return false;
+  d.people.push({id:uid(),prenom,nom});return true;
+}
+/* one person per line: "Nom ; Prénom", "Nom, Prénom", two columns copied from a spreadsheet, or "Nom Prénom" */
+function dirImport(txt,order){
+  let n=0;
+  txt.split(/\r?\n/).map(l=>l.trim()).filter(Boolean).forEach(l=>{
+    let parts=l.split(/\t|;|,/).map(x=>x.trim()).filter(Boolean);
+    if(parts.length<2){const i=l.indexOf(" ");parts=i>0?[l.slice(0,i),l.slice(i+1)]:[l]}
+    if(/^nom$/i.test(parts[0])||/^pr[ée]nom$/i.test(parts[0]))return; // header row
+    const [x,y]=parts;
+    const ok=order==="pn"?dirAdd(x||"",y||""):dirAdd(y||"",x||"");
+    if(ok)n++;
+  });
+  return n;
+}
+function renderDir(){
+  const d=dirDoc();
+  const q=view.dirQ||"";
+  const list=(q?d.people.filter(p=>fold(fullName(p)+" "+p.nom).includes(fold(q))):d.people.slice()).sort((x,y)=>fold(x.nom).localeCompare(fold(y.nom))||fold(x.prenom).localeCompare(fold(y.prenom)));
+  let h=`<section class="stack" style="margin-top:22px"><div class="court-h"><h2>Répertoire</h2><span class="chip-next">${d.people.length} personne${d.people.length>1?"s":""}</span></div>
+  <p class="note">Commun à toutes les animations. À l'arrivée, tape les premières lettres d'un prénom ou d'un nom et l'appli propose la personne.</p>
+  <form class="panel stack" id="dir-add"><div class="grid2"><label class="f">Nom<input type="text" id="dir-nom" autocomplete="off"></label><label class="f">Prénom<input type="text" id="dir-prenom" autocomplete="off"></label></div><div><button type="submit" class="btn-main btn-sm">Ajouter au répertoire</button></div></form>
+  <details class="panel"><summary style="font-weight:600;cursor:pointer">Importer une liste</summary>
+    <form class="stack" id="dir-import" style="margin-top:10px">
+      <label class="f">Une personne par ligne (tu peux coller deux colonnes depuis Excel)<textarea id="dir-txt" placeholder="Dupont ; Virginie&#10;Martin ; Maxime"></textarea></label>
+      <label class="f">Ordre<select id="dir-order"><option value="np">Nom puis Prénom</option><option value="pn">Prénom puis Nom</option></select></label>
+      <div><button type="submit" class="btn-sm">Importer</button></div>
+    </form></details>`;
+  if(d.people.length)h+=`<label class="f">Chercher<input type="text" id="dir-q" value="${esc(q)}" autocomplete="off" placeholder="Nom ou prénom"></label>`;
+  if(list.length)h+=`<div class="tbl-wrap"><table><thead><tr><th>Nom</th><th>Prénom</th><th></th></tr></thead><tbody>${list.map(p=>`<tr><td><b>${esc(p.nom)}</b></td><td>${esc(p.prenom)}</td><td class="num"><button class="btn-ghost btn-sm" data-act="dir-del" data-id="${p.id}">Supprimer</button></td></tr>`).join("")}</tbody></table></div>`;
+  else if(d.people.length)h+=`<p class="muted">Personne ne correspond.</p>`;
+  return h+`</section>`;
+}
+function dirSubmit(form){
+  const d=dirDoc();
+  if(form.id==="dir-add"){
+    const ok=dirAdd(document.getElementById("dir-prenom").value,document.getElementById("dir-nom").value);
+    if(!ok){toast("Déjà dans le répertoire, ou nom et prénom vides");return}
+    commit(d);toast("Ajouté au répertoire");const f=document.getElementById("dir-nom");if(f)f.focus();return;
+  }
+  if(form.id==="dir-import"){
+    const n=dirImport(document.getElementById("dir-txt").value,document.getElementById("dir-order").value);
+    commit(d);toast(n?`${n} personne${n>1?"s":""} ajoutée${n>1?"s":""}`:"Rien de nouveau à importer");return;
+  }
+}
+/* suggestions under the arrival field, for the name being typed after the last comma */
+function arrSuggest(input){
+  const box=document.getElementById("arr-sugg");if(!box)return;
+  const seg=input.value.split(",").pop();
+  const hits=fold(seg).length?dirSearch(seg,6):[];
+  box.innerHTML=hits.map(p=>`<button type="button" class="btn-sm sugg" data-act="flow-sugg" data-v="${esc(fullName(p))}"><b>${esc(p.prenom)}</b> ${esc(p.nom)}</button>`).join("");
+  box.hidden=!hits.length;
+}
+
 /* ---------- events ---------- */
 const parseNames=txt=>txt.split(/\n|,|;/).map(s=>s.trim()).filter(Boolean);
 const clampInt=(v,lo,hi,def)=>{const n=parseInt(v,10);return isNaN(n)?def:Math.max(lo,Math.min(hi,n))};
@@ -1178,6 +1270,7 @@ $app.addEventListener("submit",e=>{
     view.creating=false;view.animId=a.id;view.tab=flow?"terrain":names.length?(a.format==="defis"?"defis":"matchs"):"joueurs";commit(a);
   }
   if(e.target.id==="arrive-form"){flowArrive(anim());return}
+  if(e.target.id==="dir-add"||e.target.id==="dir-import"){dirSubmit(e.target);return}
   if(e.target.id==="ch-form"||e.target.id==="ch-add"){chSubmit(anim(),e.target);return}
   if(e.target.id==="settings-form"){
     const a=anim();
@@ -1195,77 +1288,7 @@ $app.addEventListener("click",e=>{
   if(el.tagName==="INPUT"||el.tagName==="SELECT")return;
   const act=el.dataset.act;
   const a=anim();
+  if(act==="dir-del"){const d=dirDoc();d.people=d.people.filter(x=>x.id!==el.dataset.id);commit(d);toast("Retiré du répertoire");return}
   if(a&&act.startsWith("flow-")&&flowAct(a,act,el))return;
   if(a&&act.startsWith("ch-")&&chAct(a,act,el))return;
-  const findM=()=>a.matches.find(m=>m.id===el.dataset.id);
-  switch(act){
-    case "new":view.creating=true;render();setTimeout(()=>{const f=document.getElementById("f-name");f&&f.focus()},0);break;
-    case "cancel-new":view.creating=false;render();break;
-    case "example":{
-      const names=["Léa","Chloé","Inès","Manon","Camille","Jade","Louise","Zoé","Lina","Emma","Alice","Rose","Anna","Mila","Lou","Nina","Clara","Sarah","Julia","Eva"];
-      const x=newAnimation({name:"Exemple – Après-midi filles",date:today(),type:"simple",format:"defis",live:6,queue:2,names});
-      x.defis=[{id:uid(),text:"Gagner un point au filet"},{id:uid(),text:"Faire 5 échanges de suite"},{id:uid(),text:"Servir deux fois dans le carré"}];
-      x.currentDefi=x.defis[0].id;
-      view.animId=x.id;view.tab="matchs";commit(x);break;}
-    case "open":{const o=norm(store.animations[el.dataset.id]);if(o.matches.length&&byStatus(o,"playing").length&&available(o).length>=need(o)){refill(o);o.updatedAt=Date.now();saveLocal();queueDb(o.id)}}
-      view.animId=el.dataset.id;view.tab="matchs";view.editMatch=null;view.openPlayer=null;render();window.scrollTo(0,0);break;
-    case "home":view.animId=null;render();window.scrollTo(0,0);break;
-    case "tab":view.tab=el.dataset.tab;render();break;
-    case "start":case "refill":{refill(a);commit(a);const p=byStatus(a,"playing").length;if(p<a.live)toast(`${p} matchs en jeu : pas assez de joueuses pour en lancer plus.`);break;}
-    case "back":case "defi-win":{
-      const m=findM();m.status="done";m.endedAt=Date.now();m.defiCount=act==="defi-win"?1:0;
-      const before=byStatus(a,"planned")[0];
-      refill(a,m);commit(a);
-      if(before&&before.status==="playing")toast(`Match ${before.seq} part : ${team(a,before.a)} contre ${team(a,before.b)}`);
-      break;}
-    case "undo-back":{const m=findM();m.status="playing";m.endedAt=null;m.backAt=null;view.editMatch=null;commit(a);toast("Match remis en jeu");break;}
-    case "redraw":{const m=findM();if(!redrawMatch(a,m))toast("Pas d'autre tirage possible pour l'instant.");commit(a);break;}
-    case "set-live":{a.live=+el.dataset.v;refill(a);commit(a);toast(`${a.live} matchs en même temps : les prochains retours ne relancent pas de match tant qu'on n'est pas redescendu à ${a.live}.`);break;}
-    case "dur":{a.duration=el.dataset.v?+el.dataset.v:null;commit(a);toast(a.duration?`Matchs de ${a.duration} minutes`:"Matchs sans limite de temps");break;}
-    case "defi-plus":{const m=findM();m.defiCount=(m.defiCount||0)+1;commit(a);break;}
-    case "defi-minus":{const m=findM();m.defiCount=Math.max(0,(m.defiCount||0)-1);commit(a);break;}
-    case "win":{const m=findM();m.winner=m.winner===el.dataset.w?null:el.dataset.w;commit(a);break;}
-    case "edit-match":view.editMatch=view.editMatch===el.dataset.id?null:el.dataset.id;render();break;
-    case "add-players":{const names=parseNames(document.getElementById("add-players").value);if(!names.length)return;names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));commit(a);toast(names.length+" ajoutée(s)");break;}
-    case "pause":case "remove-confirm":{
-      const p=a.players.find(x=>x.id===el.dataset.id);
-      if(act==="pause")p.present=false;
-      else{view.confirmRemove=null;if(a.matches.some(m=>m.a.concat(m.b).includes(p.id)))p.removed=true;else a.players=a.players.filter(x=>x.id!==p.id)}
-      const n=dropFromPlanned(a,p.id);
-      const live=isPlaying(a,p.id);
-      commit(a);
-      toast(`${p.name} ${act==="pause"?"en pause":"retirée"}${n?" · prochain match retiré":""}${live?" · son match en cours continue":""}`);
-      break;}
-    case "resume":case "restore":{const p=a.players.find(x=>x.id===el.dataset.id);p.present=true;p.removed=false;if(a.matches.length)refill(a);commit(a);toast(p.name+" reprend les tirages");break;}
-    case "remove-player":view.confirmRemove=el.dataset.id;render();break;
-    case "remove-cancel":view.confirmRemove=null;render();break;
-    case "add-defi":{
-      const v=document.getElementById("new-defi").value.trim();if(!v)return;
-      const d={id:uid(),text:v};a.defis.push(d);
-      if(!a.currentDefi)setCurrentDefi(a,d.id);
-      commit(a);toast(a.currentDefi===d.id?"Défi ajouté et mis en jeu":"Défi ajouté. Coche « En jeu » pour le jouer.");
-      setTimeout(()=>{const f=document.getElementById("new-defi");f&&f.focus()},0);break;}
-    case "del-defi":a.defis=a.defis.filter(d=>d.id!==el.dataset.id);if(a.currentDefi===el.dataset.id)setCurrentDefi(a,null);commit(a);break;
-    case "open-player":view.openPlayer=view.openPlayer===el.dataset.id?null:el.dataset.id;render();break;
-    case "delete":view.confirmDel=a.id;render();break;
-    case "delete-cancel":view.confirmDel=null;render();break;
-    case "delete-confirm":{const id=a.id;delete store.animations[id];saveLocal();queueDb(id);view.animId=null;view.confirmDel=null;render();toast("Animation supprimée");break;}
-  }
-});
-$app.addEventListener("change",e=>{
-  if(e.target.id==="f-format"){const fl=e.target.value==="rotation";document.getElementById("fs-rot").hidden=!fl;document.getElementById("fs-match").hidden=fl;return}
-  const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
-  const a=anim();if(!a)return;
-  const m=a.matches.find(x=>x.id===el.dataset.id);
-  if(act==="score"){m.score=el.value.trim();commit(a)}
-  if(act==="defi-ok"){m.defiCount=el.checked?1:0;commit(a)}
-  if(act==="match-defi"){m.defiId=el.value||null;m.defiCount=0;commit(a)}
-  if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
-  if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
-});
-$app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=e.target.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+(e.target.value.trim()||"Prénom")}});
-$app.addEventListener("keydown",e=>{
-  if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
-});
-let audio=null;const rung=new Set();
-document.addEventListen
+ 
