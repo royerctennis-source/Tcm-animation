@@ -1495,6 +1495,7 @@ function renderTourRanking(a){
   const over=t.final?finalDone(t.final):poolsOver;
   const mode=rankMode(a);
   let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la poule 1 (ou A, ou des 1ers) passent devant ceux de la poule 2, et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
+  h+=`<div class="row" style="margin-bottom:12px"><button class="btn-main" data-act="tr-xlsx">Exporter en Excel</button><span class="note">Poules, scores et classement. Sur téléphone : Partager → Enregistrer dans Drive.</span></div>`;
   h+=`<div class="cchips" style="margin-bottom:10px"><span class="note">Classer</span><button class="btn-sm chtab${mode==="levels"?" sel":""}" data-act="tr-rank" data-v="levels">Par niveau de poule</button><button class="btn-sm chtab${mode==="cross"?" sel":""}" data-act="tr-rank" data-v="cross">En croisant les poules</button></div>`;
   h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
   if(!over)h+=`<p class="note" style="margin-top:8px">Il reste des matchs${t.phases.length<t.nPhases?" ou des phases":""} : ce classement peut encore bouger.</p>`;
@@ -1564,6 +1565,7 @@ function tourAct(a,act,el){
     phs.forEach(ph=>ph.poules.forEach(p=>{p.timerAt=null;p.matches.forEach(m=>{m.sa=null;m.sb=null;m.w=null})}));
     a.tr.final=null;view.confirmReset=null;view.trPhase=null;commit(a);
     toast(el.dataset.v==="all"?"Tous les scores sont remis à zéro":"Scores de la phase "+a.tr.phases.length+" remis à zéro");return true}
+  if(act==="tr-xlsx"){el.disabled=true;tourExport(a).finally(()=>{el.disabled=false});return true}
   if(act==="tr-rank"){a.tr.rankMode=el.dataset.v;commit(a);return true}
   if(act==="tr-draw"){const err=drawPhase1(a);if(err){toast(err);return true}view.trPhase=null;view.tab="poules";commit(a);toast("Poules tirées au sort");return true}
   if(act==="tr-star"){const pl=a.players.find(x=>x.id===el.dataset.id);const v=+el.dataset.v;pl.stars=(pl.stars||0)===v?v-1:v;commit(a);return true}
@@ -1786,6 +1788,61 @@ function finalRanking(a){
   const list=decided.concat(pending,rest).map(r=>Object.assign({},r,{tag:r.tag&&!inBracket.has(r.id)?r.tag:pos[r.id]===1?"Vainqueur":pos[r.id]===2?"Finaliste":pos[r.id]===3&&f.small?"3e place":inBracket.has(r.id)?"Phase finale":""}));
   list.forEach((r,i)=>r.final=i+1);
   return list;
+}
+
+/* ---------- export Excel du tournoi (SheetJS chargé à la demande) ---------- */
+function loadXLSX(){
+  if(window.XLSX)return Promise.resolve(window.XLSX);
+  return new Promise((ok,ko)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=()=>ok(window.XLSX);s.onerror=()=>ko(new Error("load"));document.head.appendChild(s)});
+}
+function tourWorkbook(XL,a){
+  const t=a.tr, wb=XL.utils.book_new();
+  const stars=id=>(a.players.find(p=>p.id===id)||{}).stars||0;
+  const sc=m=>m.w?[m.sa,m.sb]:["",""];
+  const add=(name,rows,cols)=>{const ws=XL.utils.aoa_to_sheet(rows);if(cols)ws["!cols"]=cols.map(w=>({wch:w}));XL.utils.book_append_sheet(wb,ws,name.slice(0,31))};
+  // final ranking
+  const rk=finalRanking(a);
+  add("Classement",[[a.name+" · "+fmtDate(a.date)],["Rang","Joueur","Étoiles","Poule (dernière phase)","Place dans la poule","Points","+/−","Info"]]
+    .concat(rk.map(r=>[r.final,r.name,stars(r.id)||"",r.poule,r.rank,r.pts,r.pour-r.contre,r.tag||""])),[6,18,8,24,10,8,6,16]);
+  // one sheet per phase
+  t.phases.forEach((ph,i)=>{
+    const rows=[[`Phase ${i+1}`]];
+    ph.poules.filter(p=>p.players.length).forEach(p=>{
+      rows.push([],[p.label],["Rang","Joueur","Joués","Victoires","Défaites","Points","Pour","Contre","+/−"]);
+      standings(a,p).forEach(r=>rows.push([r.rank,r.name,r.j,r.v,r.d,r.pts,r.pour,r.contre,r.pour-r.contre]));
+      rows.push([],["Tour","Joueur 1","Score 1","Score 2","Joueur 2","Gagnant"]);
+      p.matches.forEach(m=>{const [x,y]=sc(m);rows.push([m.round,pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])});
+    });
+    add("Phase "+(i+1),rows,[8,18,8,9,9,8,7,7,6]);
+  });
+  if(t.final){
+    const rows=[["Phase finale"],[],["Tour","Joueur 1","Score 1","Score 2","Joueur 2","Gagnant"]];
+    t.final.rounds.forEach(r=>r.forEach(m=>{const [x,y]=sc(m);rows.push([roundName(r.length),pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}));
+    if(t.final.small){const m=t.final.small,[x,y]=sc(m);rows.push(["3e place",pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}
+    add("Phase finale",rows,[16,18,8,8,18,18]);
+  }
+  add("Joueurs",[["Joueur","Étoiles"]].concat(a.players.slice().sort((x,y)=>x.name.localeCompare(y.name,"fr")).map(p=>[p.name,p.stars||""])),[22,8]);
+  return wb;
+}
+async function tourExport(a){
+  let XL;
+  try{XL=await loadXLSX()}catch(e){toast("Impossible de charger l'outil Excel : vérifie la connexion internet.");return}
+  const wb=tourWorkbook(XL,a);
+  const data=XL.write(wb,{type:"array",bookType:"xlsx"});
+  const filename=((/tournoi/i.test(a.name)?"":"Tournoi ")+a.name+" "+(a.date||today())).replace(/[\\/:*?"<>|]+/g,"-").trim()+".xlsx";
+  // inside Claude the file goes through the viewer's save prompt; elsewhere a normal download
+  const dl=window.claude&&window.claude.use?await window.claude.use("downloads").catch(()=>null):null;
+  if(dl){
+    try{await dl.save({filename,data});toast("Fichier Excel enregistré")}
+    catch(e){if(e&&e.code==="declined")return;toast("Enregistrement impossible ici : ouvre l'appli sur ton site pour exporter.")}
+    return;
+  }
+  try{
+    const url=URL.createObjectURL(new Blob([data],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
+    const l=document.createElement("a");l.href=url;l.download=filename;document.body.appendChild(l);l.click();l.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+    toast("Fichier Excel téléchargé : Partager → Enregistrer dans Drive");
+  }catch(e){toast("Téléchargement impossible sur cet appareil.")}
 }
 
 /* ---------- events ---------- */
