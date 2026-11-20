@@ -267,27 +267,107 @@ let sb=null, online=false, needLogin=false, userEmail="";
 function loadLocal(){try{const raw=localStorage.getItem(LS_KEY);if(raw){const p=JSON.parse(raw);if(p&&p.animations)store=p}}catch(e){}}
 function saveLocal(){try{localStorage.setItem(LS_KEY,JSON.stringify(store))}catch(e){}}
 function commit(a){a.updatedAt=Date.now();store.animations[a.id]=a;saveLocal();queueDb(a.id);render()}
+/* Three-way merge of an animation: `base` is the version this phone last got from the server, `mine` the
+   phone's version, `theirs` what is on the server now. Changes from both sides are kept: different matches,
+   teams or players never overwrite each other. Lists of records with an id are merged record by record;
+   counters that both sides increased add up; on the very same field, this phone's value wins. */
+const COUNTERS=new Set(["seq","qn","teams","players","ms","launches","backs"]);
+const isObj=v=>v&&typeof v==="object"&&!Array.isArray(v);
+const same=(x,y)=>JSON.stringify(x)===JSON.stringify(y);
+const idList=v=>Array.isArray(v)&&v.length>0&&v.every(e=>isObj(e)&&e.id!=null);
+function merge3(base,mine,theirs,key){
+  if(same(mine,theirs))return mine;
+  if(same(mine,base))return theirs;
+  if(same(theirs,base))return mine;
+  if(isObj(mine)&&isObj(theirs)){
+    const b=isObj(base)?base:{}, out={};
+    new Set([...Object.keys(mine),...Object.keys(theirs)]).forEach(k=>{
+      const inM=k in mine, inT=k in theirs, inB=k in b;
+      if(inM&&inT)out[k]=merge3(b[k],mine[k],theirs[k],k);
+      else if(inM){if(!inB||!same(b[k],mine[k]))out[k]=mine[k]}      // removed by them, unless I changed it
+      else if(inT){if(!inB||!same(b[k],theirs[k]))out[k]=theirs[k]}
+    });
+    return out;
+  }
+  if(Array.isArray(mine)&&Array.isArray(theirs)&&(idList(mine)||idList(theirs)||idList(base))&&[mine,theirs].every(x=>x.every(e=>isObj(e)&&e.id!=null))){
+    const B=new Map((Array.isArray(base)?base:[]).filter(e=>isObj(e)).map(e=>[e.id,e]));
+    const M=new Map(mine.map(e=>[e.id,e])), T=new Map(theirs.map(e=>[e.id,e]));
+    const out=[];
+    theirs.forEach(e=>{
+      if(M.has(e.id))out.push(merge3(B.get(e.id),M.get(e.id),e));
+      else if(!B.has(e.id))out.push(e);                                  // new on their side
+      else if(!same(B.get(e.id),e))out.push(e);                          // I removed it but they changed it: keep
+    });
+    mine.forEach(e=>{if(!T.has(e.id)&&!B.has(e.id))out.push(e)});        // new on my side
+    return out;
+  }
+  if(Array.isArray(mine)&&Array.isArray(theirs)&&[mine,theirs].every(x=>x.every(e=>typeof e!=="object"))){
+    const b=Array.isArray(base)?base:[];
+    const added=mine.filter(x=>!b.includes(x)), removed=b.filter(x=>!mine.includes(x));
+    const out=theirs.filter(x=>!removed.includes(x));
+    added.forEach(x=>{if(!out.includes(x))out.push(x)});
+    return out;
+  }
+  if(Array.isArray(mine)&&Array.isArray(theirs)){                      // other lists (phases, rounds): position by position
+    const b=Array.isArray(base)?base:[], n=Math.max(mine.length,theirs.length), out=[];
+    for(let i=0;i<n;i++){
+      if(i<mine.length&&i<theirs.length)out.push(merge3(b[i],mine[i],theirs[i]));
+      else if(i<mine.length){if(i>=b.length)out.push(mine[i])}           // added by me
+      else if(i>=b.length)out.push(theirs[i]);                           // added by them
+    }
+    return out;
+  }
+  if(typeof mine==="number"&&typeof theirs==="number"&&typeof base==="number"&&COUNTERS.has(key))return mine+theirs-base;
+  return mine;
+}
+
+/* What this phone last received from the server for each animation: its revision and content (merge base) */
+const bases={};let rpcMissing=false;
+function setBase(id,rev,data){bases[id]={rev:rev||0,json:JSON.stringify(data)}}
 function queueDb(id){
   if(!online)return;
   dirty[id]=true;
   clearTimeout(timers[id]);
-  timers[id]=setTimeout(()=>{timers[id]=null;chains[id]=(chains[id]||Promise.resolve()).then(()=>writeDoc(id,0))},500);
+  timers[id]=setTimeout(()=>{timers[id]=null;chains[id]=(chains[id]||Promise.resolve()).then(()=>writeDoc(id,0))},400);
 }
+/* Save with a revision check: if someone else saved in between, merge both versions and try again */
 async function writeDoc(id,attempt){
   const a=store.animations[id];
-  const r=a
-    ? await sb.from("animations").upsert({id,data:a,updated_at:new Date().toISOString()})
-    : await sb.from("animations").delete().eq("id",id);
+  if(!a){const r=await sb.from("animations").delete().eq("id",id);if(!r.error&&!timers[id])dirty[id]=false;delete bases[id];return}
+  const sent=JSON.parse(JSON.stringify(a)), base=bases[id];
+  if(rpcMissing)return legacyWrite(id,sent,attempt);
+  const {data,error}=await sb.rpc("save_animation",{p_id:id,p_data:sent,p_rev:base?base.rev:0});
+  if(error){
+    if(/save_animation|PGRST202|function/i.test((error.code||"")+(error.message||""))){rpcMissing=true;toast("Base pas encore mise à jour (supabase-maj.sql) : enregistrement sans fusion.");return legacyWrite(id,sent,attempt)}
+    if(attempt<3){await new Promise(r=>setTimeout(r,800+Math.random()*1200));return writeDoc(id,attempt+1)}
+    toast("Pas de connexion à la base : les données restent sur ce téléphone et repartiront à la prochaine modification.");return;
+  }
+  if(data&&data.ok){setBase(id,data.rev,sent);if(!timers[id]&&same(store.animations[id],sent))dirty[id]=false;return}
+  // conflict: somebody saved before us. Merge their version with ours, keep both changes, save again.
+  const theirs=data.data, mine=store.animations[id];
+  const merged=merge3(base?JSON.parse(base.json):{},mine,theirs);
+  merged.updatedAt=Date.now();
+  store.animations[id]=merged;setBase(id,data.rev,theirs);saveLocal();render();
+  if(attempt<6)return writeDoc(id,attempt+1);
+  toast("Beaucoup de modifications en même temps : nouvel essai dans un instant.");queueDb(id);
+}
+async function legacyWrite(id,sent,attempt){
+  const r=await sb.from("animations").upsert({id,data:sent,updated_at:new Date().toISOString()});
   if(!r.error){if(!timers[id])dirty[id]=false;return}
-  if(attempt<2){await new Promise(res=>setTimeout(res,1500+Math.random()*1500));return writeDoc(id,attempt+1)}
+  if(attempt<2){await new Promise(res=>setTimeout(res,1500+Math.random()*1500));return legacyWrite(id,sent,attempt+1)}
   toast("Pas de connexion à la base : les données restent sur ce téléphone et repartiront à la prochaine modification.");
 }
 function applyRemote(rows,first){
   let changed=false;const seen=new Set();
   rows.forEach(r=>{
     seen.add(r.id);knownRemote.add(r.id);
-    if(dirty[r.id]||!r.data)return;
+    if(!r.data)return;
     const cur=store.animations[r.id];
+    if(dirty[r.id]){ // local edits waiting: merge the incoming version now so the screen shows both
+      const b=bases[r.id];if(b&&r.rev!=null&&r.rev<=b.rev)return;
+      store.animations[r.id]=merge3(b?JSON.parse(b.json):{},cur,r.data);setBase(r.id,r.rev,r.data);changed=true;return;
+    }
+    if(r.rev!=null){if(!bases[r.id]||r.rev>=bases[r.id].rev){setBase(r.id,r.rev,r.data);if(!same(cur,r.data)){store.animations[r.id]=r.data;changed=true}}return}
     if(!cur||(r.data.updatedAt||0)>(cur.updatedAt||0)){store.animations[r.id]=r.data;changed=true}
   });
   if(first)Object.keys(store.animations).forEach(id=>{if(!seen.has(id)&&!dirty[id])queueDb(id)});
@@ -304,7 +384,8 @@ async function connectDb(){
 async function startSync(session){
   needLogin=false;userEmail=(session&&session.user&&session.user.email)||"";
   online=true;
-  const {data,error}=await sb.from("animations").select("id,data");
+  let {data,error}=await sb.from("animations").select("id,data,rev");
+  if(error&&/rev/.test(error.message||"")){rpcMissing=true;({data,error}=await sb.from("animations").select("id,data"))}
   if(error){online=false;toast("Base injoignable pour l'instant : tu travailles sur les données du téléphone.");render();return}
   applyRemote(data,true);
   sb.channel("tcm-animations").on("postgres_changes",{event:"*",schema:"public",table:"animations"},p=>{
