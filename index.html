@@ -127,6 +127,14 @@ details summary{list-style-position:inside}
 .sugg b{font-weight:700}
 #arr-sugg{margin-top:-4px}
 .freeze{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--ink);color:var(--bg);border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
+.tm-row{gap:8px}
+.rnd{flex:none;font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.04em;min-width:22px}
+.tw{font-weight:700;color:var(--ok)}
+.tl{color:var(--muted)}
+.tsc{font-family:var(--display);font-size:1.15rem;margin:0 6px;font-variant-numeric:tabular-nums}
+.tm-in{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tm-in label{display:flex;align-items:center;gap:6px;font-weight:600}
+.tm-in input{width:58px;min-height:40px;font:inherit;font-size:1.1rem;text-align:center;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -222,11 +230,13 @@ const FORMATS={
   tb7:"Tie-break en 7 points",
   tb10:"Tie-break en 10 points",
   court:"2 jeux gagnants, point décisif, tie-break en 2 points d'écart",
+  tbinf:"Tie-break infini au temps (score à la fin du temps)",
   defis:"Défis à valider (sans compter les points)",
   libre:"Jeu libre (sans points ni défi)",
-  rotation:"Rotation au temps (arrivées libres)"
+  rotation:"Rotation au temps (arrivées libres)",
+  tournoi:"Petit tournoi par poules"
 };
-const FORMAT_SHORT={bo3:"2 sets gagnants",tb7:"TB 7 pts",tb10:"TB 10 pts",court:"2 jeux · point décisif",defis:"Défis",libre:"Jeu libre",rotation:"Rotation au temps"};
+const FORMAT_SHORT={bo3:"2 sets gagnants",tb7:"TB 7 pts",tb10:"TB 10 pts",court:"2 jeux · point décisif",tbinf:"TB infini au temps",defis:"Défis",tournoi:"Tournoi par poules",libre:"Jeu libre",rotation:"Rotation au temps"};
 const LS_KEY="tennis-animations-v1";
 
 let store={animations:{}};
@@ -336,6 +346,7 @@ function norm(a){
   if(a.currentDefi&&!a.defis.some(d=>d.id===a.currentDefi))a.currentDefi=null;
   a.matches=(a.matches||[]).filter(m=>m.status!=="cancelled");
   if(isFlow(a))flowNorm(a);
+  if(isTour(a))trNorm(a);
   a.matches.forEach(m=>{if(m.defiId===undefined)m.defiId=null;if(m.defiCount==null)m.defiCount=m.defiOk?1:0;if(m.defiCount>1)m.defiCount=1});
   return a;
 }
@@ -347,7 +358,7 @@ const need=a=>a.type==="double"?4:2;
 const defiText=(a,id)=>{const d=a.defis.find(x=>x.id===id);return d?d.text:""};
 
 function newAnimation(o){
-  return {id:uid(),name:o.name,date:o.date,type:o.type,format:o.format,live:o.live,queue:o.queue,cap:o.cap||4,nCourts:o.nCourts||1,limit:o.limit||8,
+  return {id:uid(),name:o.name,date:o.date,type:o.type,format:o.format,live:o.live,queue:o.queue,cap:o.cap||4,nCourts:o.nCourts||1,limit:o.limit||8,duration:o.format==="tbinf"?10:null,tr:o.tr||undefined,
     players:o.names.map(n=>({id:uid(),name:n,present:true})),defis:[],currentDefi:null,matches:[],seq:0,createdAt:Date.now(),updatedAt:Date.now()};
 }
 function tally(a,statuses){
@@ -506,13 +517,14 @@ function renderHome(){
   }
   list.forEach(a=>{
     const nm=byStatus(a,"done").length;
+    if(isTour(a)){const ph=a.tr.phases.length;h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Tournoi · ${a.tr.nPoules} poule${a.tr.nPoules>1?"s":""} · ${a.tr.nPhases} phase${a.tr.nPhases>1?"s":""}</div></div><div class="n">${a.players.length}<small>joueurs</small></div><div class="n">${ph||"–"}<small>phase</small></div></button>`;return}
     if(isFlow(a)){h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · Rotation au temps · ${a.nCourts>1?a.nCourts+" terrains × "+a.cap:a.cap+" max"} · ${a.limit} min</div></div><div class="n">${playersOn(a)}<small>en jeu</small></div><div class="n">${playersWaiting(a)+playersPaused(a)}<small>attente/pause</small></div></button>`;return}
     h+=`<button class="anim-card" data-act="open" data-id="${a.id}"><div style="min-width:0;flex:1"><div class="t">${esc(a.name)}</div><div class="muted">${fmtDate(a.date)} · ${a.type==="double"?"Double":"Simple"} · ${esc(FORMAT_SHORT[a.format])}</div></div><div class="n">${a.players.length}<small>inscrits</small></div><div class="n">${nm}<small>matchs</small></div></button>`;
   });
   if(sb&&online)h+=`<p class="note" style="margin-top:24px">Connecté : ${esc(userEmail)} · données synchronisées. <button class="btn-ghost btn-sm" data-act="logout">Se déconnecter</button></p>`;
   return h+`</div>`;
 }
-function formatOptions(sel,noRot){return Object.entries(FORMATS).filter(([k])=>!(noRot&&k==="rotation")).map(([k,v])=>`<option value="${k}"${k===sel?" selected":""}>${esc(v)}</option>`).join("")}
+function formatOptions(sel,noRot){return Object.entries(FORMATS).filter(([k])=>!(noRot&&(k==="rotation"||k==="tournoi"))).map(([k,v])=>`<option value="${k}"${k===sel?" selected":""}>${esc(v)}</option>`).join("")}
 function renderCreate(){
   return `<form class="panel stack" id="create-form">
     <h2>Nouvelle animation</h2>
@@ -537,10 +549,24 @@ function renderCreate(){
       <label class="f">Alerte après<select id="f-limit">${[6,7,8,9,10,15].map(v=>`<option value="${v}"${v===8?" selected":""}>${v} minutes</option>`).join("")}</select></label>
       <p class="note">Pas de liste à préparer : tu notes les prénoms au fur et à mesure des arrivées.</p>
     </div>
+    <div class="stack" id="fs-tour" hidden>
+      <div class="grid2">
+        <label class="f">Nombre de poules (1 à 10)<input type="number" id="f-np" min="1" max="10" value="2" inputmode="numeric"></label>
+        <label class="f">Joueurs max par poule (2 à 6)<input type="number" id="f-pp" min="2" max="6" value="4" inputmode="numeric"></label>
+      </div>
+      <div class="grid2">
+        <label class="f">Nombre de phases (1 à 3)<input type="number" id="f-nph" min="1" max="3" value="1" inputmode="numeric"></label>
+        <label class="f">Format des matchs<select id="f-mf">${MATCH_FMTS.map(k=>`<option value="${k}">${esc(k==="tbinf"?"Tie-break infini au temps":FORMATS[k])}</option>`).join("")}</select></label>
+      </div>
+      <label class="f">Durée d'un match en tie-break infini (minutes)<input type="number" id="f-tdur" min="3" max="30" value="10" inputmode="numeric"></label>
+      <label class="f">Joueurs (un par ligne ou séparés par des virgules ; tu pourras en ajouter ensuite)<textarea id="f-tplayers" placeholder="Virginie&#10;Maxime"></textarea></label>
+      <p class="note">Victoire 2 pts, défaite 0 pt. Avec 2 phases ou plus, tous les 1ers se retrouvent dans la même poule, puis tous les 2es, etc.</p>
+    </div>
     <div class="row"><button type="submit" class="btn-main">Créer l'animation</button><button type="button" class="btn-ghost" data-act="cancel-new">Annuler</button></div>
   </form>`;
 }
 function renderAnim(a){
+  if(isTour(a))return renderTour(a);
   if(isFlow(a)){
     const ftabs=[["terrain","Terrain"],["defis","Défis"],["stats","Stats"],["reglages","Réglages"]];
     if(!ftabs.some(t=>t[0]===view.tab))view.tab="terrain";
@@ -666,7 +692,7 @@ function renderResult(a,m){
   let h=`<div class="result"><div class="eyebrow">Résultat (facultatif)</div>`;
   h+=`<div class="seg"><button aria-pressed="${m.winner==="A"}" data-act="win" data-id="${m.id}" data-w="A">${esc(A)} gagne</button><button aria-pressed="${m.winner==="B"}" data-act="win" data-id="${m.id}" data-w="B">${esc(B)} gagne</button></div>`;
   if(a.format==="libre")return h+`</div>`;
-  if(a.format!=="defis")h+=`<input type="text" id="score-${m.id}" data-act="score" data-id="${m.id}" value="${esc(m.score)}" placeholder="Score, ex. 6/4 3/6 10/8" aria-label="Score">`;
+  if(a.format!=="defis")h+=`<input type="text" id="score-${m.id}" data-act="score" data-id="${m.id}" value="${esc(m.score)}" placeholder="${a.format==="tbinf"?"Score à la fin du temps, ex. 14/11":"Score, ex. 6/4 3/6 10/8"}" aria-label="Score">`;
   else{
     h+=`<label class="f">Défi du match${defiSelect(a,m.defiId,`data-act="match-defi" data-id="${m.id}"`)}</label>`;
     if(m.defiId)h+=`<label class="check"><input type="checkbox" data-act="defi-ok" data-id="${m.id}"${m.defiCount?" checked":""}> Défi réussi (validé pour toutes les joueuses du match)</label>`;
@@ -746,6 +772,7 @@ function renderStats(a){
   return h+`</tbody></table></div></div>`;
 }
 function renderSettings(a){
+  if(isTour(a))return tourSettings(a);
   if(isFlow(a))return `<form class="panel stack" id="settings-form">
     <label class="f">Nom<input type="text" id="s-name" value="${esc(a.name)}"></label>
     <label class="f">Date<input type="date" id="s-date" value="${esc(a.date)}"></label>
@@ -1266,6 +1293,231 @@ function arrSuggest(input){
   box.hidden=!hits.length;
 }
 
+/* ---------- petit tournoi par poules ----------
+   Up to 10 pools of up to 6 players, round robin, win 2 pts / loss 0 pt.
+   With several phases, phase n+1 puts all the 1sts of phase n in one pool, then all the 2nds, and so on.
+   Final ranking: last phase pools in order (pool of 1sts first), each pool in its own standing order. */
+const isTour=a=>a.format==="tournoi";
+const MATCH_FMTS=["tbinf","tb7","tb10","court","bo3"];
+const POULE_LETTERS="ABCDEFGHIJ";
+const ordinal=r=>r===1?"1ers":r+"es";
+function trNorm(a){
+  if(!a.tr)a.tr={};
+  const t=a.tr;
+  if(!t.nPoules)t.nPoules=2;
+  if(!t.perPoule)t.perPoule=4;
+  if(!t.nPhases)t.nPhases=1;
+  if(!t.matchFmt)t.matchFmt="tbinf";
+  if(!t.duration)t.duration=10;
+  if(!t.phases)t.phases=[];
+  a.players=a.players||[];
+}
+/* round robin order (circle method): everybody plays once per round, nobody plays twice in a row when it can be avoided */
+function roundRobin(ids){
+  const list=ids.slice();if(list.length%2)list.push(null);
+  const n=list.length, rounds=[];
+  for(let r=0;r<n-1;r++){
+    const pairs=[];
+    for(let i=0;i<n/2;i++){const x=list[i],y=list[n-1-i];if(x&&y)pairs.push(r%2?[y,x]:[x,y])}
+    rounds.push(pairs);
+    list.splice(1,0,list.pop());
+  }
+  return rounds;
+}
+function makePoule(label,ids){
+  const matches=[];
+  roundRobin(ids).forEach((pairs,r)=>pairs.forEach(([x,y])=>matches.push({id:uid(),a:x,b:y,round:r+1,sa:null,sb:null,w:null})));
+  return {id:uid(),label,players:ids.slice(),matches};
+}
+function drawPhase1(a){
+  const t=a.tr, ids=shuffle(a.players.map(p=>p.id));
+  const n=ids.length;
+  if(n<2)return "Il faut au moins 2 joueurs.";
+  if(n>t.nPoules*t.perPoule)return `Trop de joueurs : ${t.nPoules} poules × ${t.perPoule} = ${t.nPoules*t.perPoule} places pour ${n} joueurs.`;
+  const nP=Math.min(t.nPoules,Math.floor(n/2))||1; // never a pool of one
+  const groups=[...Array(nP)].map(()=>[]);
+  ids.forEach((id,i)=>groups[i%nP].push(id));
+  t.phases=[{poules:groups.map((g,i)=>makePoule("Poule "+POULE_LETTERS[i],g))}];
+  return null;
+}
+/* standing of one pool: points, then results between tied players, then score difference, then points scored */
+function standings(a,poule){
+  const row={};
+  poule.players.forEach(id=>row[id]={id,name:pName(a,id),j:0,v:0,d:0,pts:0,pour:0,contre:0});
+  poule.matches.forEach(m=>{
+    if(!m.w)return;
+    const A=row[m.a],B=row[m.b];if(!A||!B)return;
+    A.j++;B.j++;
+    const win=m.w==="a"?A:B, lose=m.w==="a"?B:A;
+    win.v++;win.pts+=2;lose.d++;
+    if(m.sa!=null&&m.sb!=null){A.pour+=m.sa;A.contre+=m.sb;B.pour+=m.sb;B.contre+=m.sa}
+  });
+  const list=Object.values(row);
+  const h2h=(group)=>{ // points earned only in the matches between the players of `group`
+    const ids=new Set(group.map(r=>r.id)), pts={};
+    group.forEach(r=>pts[r.id]=0);
+    poule.matches.forEach(m=>{if(m.w&&ids.has(m.a)&&ids.has(m.b))pts[m.w==="a"?m.a:m.b]+=2});
+    return pts;
+  };
+  const byPts={};list.forEach(r=>(byPts[r.pts]=byPts[r.pts]||[]).push(r));
+  Object.values(byPts).forEach(g=>{const p=h2h(g);g.forEach(r=>r.h2h=p[r.id])});
+  list.sort((x,y)=>y.pts-x.pts||y.h2h-x.h2h||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
+  list.forEach((r,i)=>r.rank=i+1);
+  return list;
+}
+const pouleDone=p=>p.matches.every(m=>m.w);
+const phaseDone=ph=>ph.poules.every(pouleDone);
+function nextPhase(a){
+  const t=a.tr, last=t.phases[t.phases.length-1];
+  const tables=last.poules.map(p=>standings(a,p));
+  const depth=Math.max(...tables.map(s=>s.length));
+  const poules=[];
+  for(let r=1;r<=depth;r++){
+    const ids=tables.map(s=>s[r-1]).filter(Boolean).map(x=>x.id);
+    if(ids.length)poules.push(makePoule("Poule des "+ordinal(r),ids));
+  }
+  t.phases.push({poules});
+}
+/* final ranking from the last phase played */
+function finalRanking(a){
+  const t=a.tr;if(!t.phases.length)return [];
+  const ph=t.phases[t.phases.length-1];
+  const tables=ph.poules.map(p=>standings(a,p).map(r=>Object.assign({},r,{poule:p.label})));
+  let list;
+  if(t.phases.length>1)list=[].concat(...tables); // pools are already ordered: 1sts, 2nds, ...
+  else list=[].concat(...tables).sort((x,y)=>x.rank-y.rank||y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
+  list.forEach((r,i)=>r.final=i+1);
+  return list;
+}
+function matchFmtLabel(t){return t.matchFmt==="tbinf"?`Tie-break infini au temps (${t.duration} min)`:FORMATS[t.matchFmt]}
+function renderTour(a){
+  const t=a.tr, tabs=[["joueurs","Joueurs"],["poules","Poules"],["classement","Classement"],["reglages","Réglages"]];
+  if(!tabs.some(x=>x[0]===view.tab))view.tab=t.phases.length?"poules":"joueurs";
+  let h=`<button class="btn-ghost" data-act="home">← TCM Animation</button>`;
+  h+=`<header class="top"><div style="min-width:0"><div class="eyebrow">${fmtDate(a.date)} · ${t.nPoules} poule${t.nPoules>1?"s":""} de ${t.perPoule} max · ${t.nPhases} phase${t.nPhases>1?"s":""}</div><h1>${esc(a.name)}</h1><div class="muted">Tournoi par poules · ${esc(matchFmtLabel(t))}</div></div><div class="ballmark" aria-hidden="true"></div></header>`;
+  h+=`<nav class="tabs" role="tablist">${tabs.map(([k,v])=>`<button role="tab" aria-selected="${view.tab===k}" data-act="tab" data-tab="${k}">${v}</button>`).join("")}</nav>`;
+  if(view.tab==="joueurs")h+=renderTourPlayers(a);
+  if(view.tab==="poules")h+=renderTourPoules(a);
+  if(view.tab==="classement")h+=renderTourRanking(a);
+  if(view.tab==="reglages")h+=renderSettings(a);
+  return h;
+}
+const hasResults=a=>a.tr.phases.some(ph=>ph.poules.some(p=>p.matches.some(m=>m.w)));
+function renderTourPlayers(a){
+  const t=a.tr, n=a.players.length, cap=t.nPoules*t.perPoule;
+  let h=`<form class="panel stack" id="tr-add">
+    <label class="f">Ajouter des joueurs (plusieurs : séparés par des virgules)<input type="text" id="tr-names" autocomplete="off" value="${esc(view.trNames||"")}" placeholder="Virginie, Maxime"></label>
+    <div id="tr-sugg" class="cchips" hidden></div>
+    <div><button type="submit" class="btn-ball">Ajouter</button></div></form>`;
+  h+=`<div class="bar" style="margin-top:14px"><div class="kpis"><div><b>${n}</b><span>joueurs</span></div><div><b>${cap}</b><span>places (${t.nPoules} × ${t.perPoule})</span></div></div>`;
+  if(!t.phases.length)h+=`<button class="btn-main" data-act="tr-draw"${n<2||n>cap?" disabled":""}>Tirer les poules au sort</button>`;
+  else if(!hasResults(a))h+=`<button class="btn-sm" data-act="tr-draw">Refaire le tirage</button>`;
+  h+=`</div>`;
+  if(n>cap)h+=`<p class="note" style="color:var(--danger)">Trop de joueurs pour ${t.nPoules} poules de ${t.perPoule} : augmente le nombre de poules dans Réglages ou retire des joueurs.</p>`;
+  if(t.phases.length&&hasResults(a))h+=`<p class="note">Les poules sont lancées : la liste ne change plus.</p>`;
+  if(n)h+=`<div class="list">${a.players.slice().sort((x,y)=>x.name.localeCompare(y.name,"fr")).map(p=>`<div class="li"><div class="grow"><b>${esc(p.name)}</b></div>${t.phases.length?"":`<button class="btn-ghost btn-sm" data-act="tr-del" data-id="${p.id}">Retirer</button>`}</div>`).join("")}</div>`;
+  else h+=`<p class="muted">Ajoute les joueurs, puis tire les poules au sort.</p>`;
+  return h;
+}
+function matchRow(a,m){
+  const A=esc(pName(a,m.a)),B=esc(pName(a,m.b));
+  if(m.w&&view.trEdit!==m.id){
+    const sc=m.sa!=null?`${m.sa} – ${m.sb}`:"";
+    return `<div class="li tm-row"><span class="rnd">T${m.round}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
+  }
+  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">T${m.round}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
+}
+function renderTourPoules(a){
+  const t=a.tr;
+  if(!t.phases.length)return `<div class="panel empty stack"><h2>Pas encore de poules</h2><p class="muted">Ajoute les joueurs dans l'onglet Joueurs, puis tire les poules au sort.</p></div>`;
+  const pi=Math.min(view.trPhase??t.phases.length-1,t.phases.length-1);
+  let h="";
+  if(t.phases.length>1)h+=`<div class="cchips" style="margin-bottom:12px">${t.phases.map((_,i)=>`<button class="btn-sm chtab${i===pi?" sel":""}" data-act="tr-phase" data-v="${i}">Phase ${i+1}</button>`).join("")}</div>`;
+  const ph=t.phases[pi], done=phaseDone(ph), isLast=pi===t.phases.length-1;
+  const left=ph.poules.reduce((s,p)=>s+p.matches.filter(m=>!m.w).length,0);
+  h+=`<div class="bar"><div><h2>Phase ${pi+1}${t.nPhases>1?" / "+t.nPhases:""}</h2><div class="note">${done?"Tous les matchs sont joués":left+" match"+(left>1?"s":"")+" à jouer"} · victoire 2 pts, défaite 0 pt</div></div>`;
+  if(isLast&&t.phases.length<t.nPhases)h+=`<button class="btn-main" data-act="tr-next"${done?"":" disabled"}>Lancer la phase ${t.phases.length+1}</button>`;
+  else if(isLast&&done)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement final</button>`;
+  h+=`</div>`;
+  if(isLast&&t.phases.length<t.nPhases)h+=`<p class="note">À la phase ${t.phases.length+1}, tous les 1ers jouent ensemble dans une poule, puis tous les 2es, et ainsi de suite.</p>`;
+  ph.poules.forEach(p=>{
+    const st=standings(a,p);
+    h+=`<section class="stack poule" style="margin-top:18px"><div class="court-h"><h2>${esc(p.label)}</h2><span class="${pouleDone(p)?"chip-free":"chip-next"}">${pouleDone(p)?"terminée":p.matches.filter(m=>m.w).length+"/"+p.matches.length+" matchs"}</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th class="num">#</th><th>Joueur</th><th class="num">J</th><th class="num">V</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${st.map(r=>`<tr><td class="num">${medal(r.rank)}</td><td><b>${esc(r.name)}</b></td><td class="num">${r.j}</td><td class="num">${r.v}</td><td class="num"><b>${r.pts}</b></td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>
+      ${p.matches.length?`<div class="list">${p.matches.map(m=>matchRow(a,m)).join("")}</div>`:`<p class="note">Seul dans cette poule : pas de match.</p>`}</section>`;
+  });
+  return h;
+}
+function renderTourRanking(a){
+  const t=a.tr, list=finalRanking(a);
+  if(!list.length)return `<p class="muted">Le classement apparaît une fois les poules tirées.</p>`;
+  const over=t.phases.length===t.nPhases&&phaseDone(t.phases[t.phases.length-1]);
+  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.phases.length>1?"D'après la dernière phase : la poule des 1ers d'abord, puis celle des 2es…":t.nPoules>1?"Les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score.":"Ordre de la poule."}</div></div></div>`;
+  h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
+  if(!over)h+=`<p class="note" style="margin-top:8px">Il reste des matchs${t.phases.length<t.nPhases?" ou des phases":""} : ce classement peut encore bouger.</p>`;
+  return h;
+}
+function tourSettings(a){
+  const t=a.tr, locked=t.phases.length>0;
+  return `<form class="panel stack" id="settings-form">
+    <label class="f">Nom<input type="text" id="s-name" value="${esc(a.name)}"></label>
+    <label class="f">Date<input type="date" id="s-date" value="${esc(a.date)}"></label>
+    <div class="grid2"><label class="f">Nombre de poules (1 à 10)<input type="number" id="s-np" min="1" max="10" value="${t.nPoules}"${locked?" disabled":""}></label><label class="f">Joueurs max par poule (2 à 6)<input type="number" id="s-pp" min="2" max="6" value="${t.perPoule}"${locked?" disabled":""}></label></div>
+    <div class="grid2"><label class="f">Nombre de phases (1 à 3)<input type="number" id="s-nph" min="1" max="3" value="${t.nPhases}"></label><label class="f">Format des matchs<select id="s-mf">${MATCH_FMTS.map(k=>`<option value="${k}"${k===t.matchFmt?" selected":""}>${esc(k==="tbinf"?"Tie-break infini au temps":FORMATS[k])}</option>`).join("")}</select></label></div>
+    <label class="f">Durée d'un match en tie-break infini (min)<input type="number" id="s-tdur" min="3" max="30" value="${t.duration}"></label>
+    ${locked?`<p class="note">Les poules sont tirées : le nombre de poules et de joueurs ne change plus.</p>`:""}
+    <div><button type="submit" class="btn-main">Enregistrer</button></div></form>
+  <div class="panel stack" style="margin-top:16px"><h3>Supprimer le tournoi</h3><div class="row">${view.confirmDel===a.id?`<button class="btn-danger" data-act="delete-confirm">Oui, supprimer définitivement</button><button class="btn-ghost" data-act="delete-cancel">Annuler</button>`:`<button class="btn-danger" data-act="delete">Supprimer</button>`}</div></div>`;
+}
+function tourSaveSettings(a){
+  const t=a.tr;
+  if(!t.phases.length){t.nPoules=clampInt(document.getElementById("s-np").value,1,10,t.nPoules);t.perPoule=clampInt(document.getElementById("s-pp").value,2,6,t.perPoule)}
+  t.nPhases=Math.max(t.phases.length||1,clampInt(document.getElementById("s-nph").value,1,3,t.nPhases));
+  t.matchFmt=document.getElementById("s-mf").value;
+  t.duration=clampInt(document.getElementById("s-tdur").value,3,30,t.duration);
+}
+function findTourMatch(a,id){for(const ph of a.tr.phases)for(const p of ph.poules){const m=p.matches.find(x=>x.id===id);if(m)return m}return null}
+function tourSubmit(a,form){
+  if(form.id==="tr-add"){
+    const names=parseNames(document.getElementById("tr-names").value).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
+    if(!names.length)return;
+    if(a.tr.phases.length&&hasResults(a)){toast("Les poules sont lancées : on ne peut plus ajouter de joueur");return}
+    names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));
+    if(a.tr.phases.length)a.tr.phases=[]; // the draw is redone with the new players
+    view.trNames="";commit(a);toast(names.length>1?names.length+" joueurs ajoutés":names[0]+" ajouté");
+    const f=document.getElementById("tr-names");if(f)f.focus();return;
+  }
+  if(form.classList.contains("tm-form")){
+    const m=findTourMatch(a,form.dataset.id);if(!m)return;
+    const sa=parseInt(form.elements.sa.value,10), sb=parseInt(form.elements.sb.value,10);
+    if(isNaN(sa)||isNaN(sb)){toast("Entre les deux scores");return}
+    if(sa===sb){toast("Il faut un gagnant : les scores ne peuvent pas être égaux");return}
+    m.sa=sa;m.sb=sb;m.w=sa>sb?"a":"b";view.trEdit=null;commit(a);
+    toast(`${pName(a,m.w==="a"?m.a:m.b)} gagne ${Math.max(sa,sb)}–${Math.min(sa,sb)} · +2 pts`);
+  }
+}
+function tourAct(a,act,el){
+  if(act==="tr-draw"){const err=drawPhase1(a);if(err){toast(err);return true}view.trPhase=null;view.tab="poules";commit(a);toast("Poules tirées au sort");return true}
+  if(act==="tr-del"){a.players=a.players.filter(p=>p.id!==el.dataset.id);commit(a);return true}
+  if(act==="tr-edit"){view.trEdit=el.dataset.id;render();return true}
+  if(act==="tr-phase"){view.trPhase=+el.dataset.v;render();return true}
+  if(act==="tr-next"){if(!phaseDone(a.tr.phases[a.tr.phases.length-1])){toast("Il reste des matchs à jouer");return true}nextPhase(a);view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} lancée`);window.scrollTo(0,0);return true}
+  if(act==="tr-sugg"){
+    const inp=document.getElementById("tr-names");if(!inp)return true;
+    const parts=inp.value.split(",");parts[parts.length-1]=(parts.length>1?" ":"")+el.dataset.v;
+    inp.value=parts.join(",");view.trNames=inp.value;
+    const box=document.getElementById("tr-sugg");if(box){box.hidden=true;box.innerHTML=""}
+    inp.focus();return true}
+  return false;
+}
+function trSuggest(input){
+  const box=document.getElementById("tr-sugg");if(!box)return;
+  const seg=input.value.split(",").pop();
+  const hits=fold(seg).length?dirSearch(seg,6):[];
+  box.innerHTML=hits.map(p=>`<button type="button" class="btn-sm sugg" data-act="tr-sugg" data-v="${esc(fullName(p))}"><b>${esc(p.prenom)}</b> ${esc(p.nom)}</button>`).join("");
+  box.hidden=!hits.length;
+}
+
 /* ---------- events ---------- */
 const parseNames=txt=>txt.split(/\n|,|;/).map(s=>s.trim()).filter(Boolean);
 const clampInt=(v,lo,hi,def)=>{const n=parseInt(v,10);return isNaN(n)?def:Math.max(lo,Math.min(hi,n))};
@@ -1279,6 +1531,12 @@ $app.addEventListener("submit",e=>{
   if(e.target.id==="create-form"){
     const name=document.getElementById("f-name").value.trim()||"Animation";
     const fmt=document.getElementById("f-format").value, flow=fmt==="rotation";
+    if(fmt==="tournoi"){
+      const tnames=parseNames(document.getElementById("f-tplayers").value).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
+      const a=newAnimation({name,date:document.getElementById("f-date").value||today(),type:"simple",format:fmt,live:1,queue:0,names:tnames,
+        tr:{nPoules:clampInt(document.getElementById("f-np").value,1,10,2),perPoule:clampInt(document.getElementById("f-pp").value,2,6,4),nPhases:clampInt(document.getElementById("f-nph").value,1,3,1),matchFmt:document.getElementById("f-mf").value,duration:clampInt(document.getElementById("f-tdur").value,3,30,10),phases:[]}});
+      view.creating=false;view.animId=a.id;view.tab="joueurs";commit(a);return;
+    }
     const names=flow?[]:parseNames(document.getElementById("f-players").value);
     const a=newAnimation({name,date:document.getElementById("f-date").value||today(),type:document.getElementById("f-type").value,format:fmt,
       live:clampInt(document.getElementById("f-live").value,1,20,6),queue:0,names,cap:clampInt(document.getElementById("f-cap").value,2,30,4),nCourts:clampInt(document.getElementById("f-courts").value,1,12,1),limit:+document.getElementById("f-limit").value});
@@ -1287,11 +1545,13 @@ $app.addEventListener("submit",e=>{
   if(e.target.id==="arrive-form"){flowArrive(anim());return}
   if(e.target.id==="dir-add"||e.target.id==="dir-import"){dirSubmit(e.target);return}
   if(e.target.id==="ch-form"||e.target.id==="ch-add"){chSubmit(anim(),e.target);return}
+  if(e.target.id==="tr-add"||e.target.classList.contains("tm-form")){tourSubmit(anim(),e.target);return}
   if(e.target.id==="settings-form"){
     const a=anim();
     a.name=document.getElementById("s-name").value.trim()||a.name;
     a.date=document.getElementById("s-date").value||a.date;
     if(isFlow(a)){commit(a);toast("Réglages enregistrés");return}
+    if(isTour(a)){tourSaveSettings(a);commit(a);toast("Réglages enregistrés");return}
     a.type=document.getElementById("s-type").value;a.format=document.getElementById("s-format").value;
     a.live=clampInt(document.getElementById("s-live").value,1,20,a.live);
     {const v=document.getElementById("s-dur").value;a.duration=v?+v:null}
@@ -1306,6 +1566,7 @@ $app.addEventListener("click",e=>{
   if(act==="dir-del"){const d=dirDoc();d.people=d.people.filter(x=>x.id!==el.dataset.id);commit(d);toast("Retiré du répertoire");return}
   if(a&&act.startsWith("flow-")&&flowAct(a,act,el))return;
   if(a&&act.startsWith("ch-")&&chAct(a,act,el))return;
+  if(a&&act.startsWith("tr-")&&tourAct(a,act,el))return;
   const findM=()=>a.matches.find(m=>m.id===el.dataset.id);
   switch(act){
     case "new":view.creating=true;render();setTimeout(()=>{const f=document.getElementById("f-name");f&&f.focus()},0);break;
@@ -1362,7 +1623,7 @@ $app.addEventListener("click",e=>{
   }
 });
 $app.addEventListener("change",e=>{
-  if(e.target.id==="f-format"){const fl=e.target.value==="rotation";document.getElementById("fs-rot").hidden=!fl;document.getElementById("fs-match").hidden=fl;return}
+  if(e.target.id==="f-format"){const v=e.target.value;document.getElementById("fs-rot").hidden=v!=="rotation";document.getElementById("fs-tour").hidden=v!=="tournoi";document.getElementById("fs-match").hidden=v==="rotation"||v==="tournoi";return}
   const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
   const a=anim();if(!a)return;
   const m=a.matches.find(x=>x.id===el.dataset.id);
@@ -1374,6 +1635,7 @@ $app.addEventListener("change",e=>{
 });
 $app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;
   if(e.target.id==="arrive-names")arrSuggest(e.target);
+  if(e.target.id==="tr-names"){view.trNames=e.target.value;trSuggest(e.target)}
   if(e.target.id==="dir-q"){view.dirQ=e.target.value;const pos=e.target.selectionStart;render();const q=document.getElementById("dir-q");if(q){q.focus();try{q.setSelectionRange(pos,pos)}catch(_){}}return}if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=e.target.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+(e.target.value.trim()||"Prénom")}});
 $app.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
