@@ -135,6 +135,11 @@ details summary{list-style-position:inside}
 .tm-in{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .tm-in label{display:flex;align-items:center;gap:6px;font-weight:600}
 .tm-in input{width:58px;min-height:40px;font:inherit;font-size:1.1rem;text-align:center;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.ptools{gap:8px;align-items:center}
+.ptimer{font-family:var(--display);font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums;min-width:3.4em}
+.ptimer.over{color:var(--danger)}
+.pedit{border:1.5px dashed var(--line);border-radius:12px;padding:10px}
+.pedit select{font:inherit;min-height:40px;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);max-width:170px}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -1378,17 +1383,6 @@ function nextPhase(a){
   }
   t.phases.push({poules});
 }
-/* final ranking from the last phase played */
-function finalRanking(a){
-  const t=a.tr;if(!t.phases.length)return [];
-  const ph=t.phases[t.phases.length-1];
-  const tables=ph.poules.map(p=>standings(a,p).map(r=>Object.assign({},r,{poule:p.label})));
-  let list;
-  if(t.phases.length>1)list=[].concat(...tables); // pools are already ordered: 1sts, 2nds, ...
-  else list=[].concat(...tables).sort((x,y)=>x.rank-y.rank||y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
-  list.forEach((r,i)=>r.final=i+1);
-  return list;
-}
 function matchFmtLabel(t){return t.matchFmt==="tbinf"?`Tie-break infini au temps (${t.duration} min)`:FORMATS[t.matchFmt]}
 function renderTour(a){
   const t=a.tr, tabs=[["joueurs","Joueurs"],["poules","Poules"],["classement","Classement"],["reglages","Réglages"]];
@@ -1410,50 +1404,60 @@ function renderTourPlayers(a){
     <div id="tr-sugg" class="cchips" hidden></div>
     <div><button type="submit" class="btn-ball">Ajouter</button></div></form>`;
   h+=`<div class="bar" style="margin-top:14px"><div class="kpis"><div><b>${n}</b><span>joueurs</span></div><div><b>${cap}</b><span>places (${t.nPoules} × ${t.perPoule})</span></div></div>`;
-  if(!t.phases.length)h+=`<button class="btn-main" data-act="tr-draw"${n<2||n>cap?" disabled":""}>Tirer les poules au sort</button>`;
+  if(!t.phases.length)h+=`<div class="row"><button class="btn-main" data-act="tr-draw"${n<2||n>cap?" disabled":""}>Tirer les poules au sort</button><button class="btn-sm" data-act="tr-hand"${n<2?" disabled":""}>Composer les poules à la main</button></div>`;
   else if(!hasResults(a))h+=`<button class="btn-sm" data-act="tr-draw">Refaire le tirage</button>`;
   h+=`</div>`;
   if(n>cap)h+=`<p class="note" style="color:var(--danger)">Trop de joueurs pour ${t.nPoules} poules de ${t.perPoule} : augmente le nombre de poules dans Réglages ou retire des joueurs.</p>`;
-  if(t.phases.length&&hasResults(a))h+=`<p class="note">Les poules sont lancées : la liste ne change plus.</p>`;
-  if(n)h+=`<div class="list">${a.players.slice().sort((x,y)=>x.name.localeCompare(y.name,"fr")).map(p=>`<div class="li"><div class="grow"><b>${esc(p.name)}</b></div>${t.phases.length?"":`<button class="btn-ghost btn-sm" data-act="tr-del" data-id="${p.id}">Retirer</button>`}</div>`).join("")}</div>`;
+  if(t.phases.length)h+=`<p class="note">Poules tirées : un joueur ajouté ici se place ensuite dans une poule avec « Modifier les joueurs » (onglet Poules).</p>`;
+  const ph=t.phases.length?curPhase(a):null;
+  if(n)h+=`<div class="list">${a.players.slice().sort((x,y)=>x.name.localeCompare(y.name,"fr")).map(p=>{const pl=ph&&inPhase(ph,p.id);return `<div class="li"><div class="grow"><b>${esc(p.name)}</b>${ph?`<div class="note">${pl?esc(pl.label):"pas dans une poule"}</div>`:""}</div>${pl?"":`<button class="btn-ghost btn-sm" data-act="tr-del" data-id="${p.id}">Retirer</button>`}</div>`}).join("")}</div>`;
   else h+=`<p class="muted">Ajoute les joueurs, puis tire les poules au sort.</p>`;
   return h;
 }
-function matchRow(a,m){
-  const A=esc(pName(a,m.a)),B=esc(pName(a,m.b));
+function matchRow(a,m,lbl){
+  const A=esc(pName(a,m.a)),B=esc(pName(a,m.b)), R=lbl||"T"+m.round;
   if(m.w&&view.trEdit!==m.id){
     const sc=m.sa!=null?`${m.sa} – ${m.sb}`:"";
-    return `<div class="li tm-row"><span class="rnd">T${m.round}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
+    return `<div class="li tm-row"><span class="rnd">${R}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
   }
-  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">T${m.round}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
+  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">${R}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
 }
 function renderTourPoules(a){
   const t=a.tr;
   if(!t.phases.length)return `<div class="panel empty stack"><h2>Pas encore de poules</h2><p class="muted">Ajoute les joueurs dans l'onglet Joueurs, puis tire les poules au sort.</p></div>`;
-  const pi=Math.min(view.trPhase??t.phases.length-1,t.phases.length-1);
+  const showFinal=t.final&&(view.trPhase==null||view.trPhase==="final");
+  const pi=showFinal?t.phases.length-1:Math.min(view.trPhase??t.phases.length-1,t.phases.length-1);
   let h="";
-  if(t.phases.length>1)h+=`<div class="cchips" style="margin-bottom:12px">${t.phases.map((_,i)=>`<button class="btn-sm chtab${i===pi?" sel":""}" data-act="tr-phase" data-v="${i}">Phase ${i+1}</button>`).join("")}</div>`;
-  const ph=t.phases[pi], done=phaseDone(ph), isLast=pi===t.phases.length-1;
+  if(t.phases.length>1||t.final)h+=`<div class="cchips" style="margin-bottom:12px">${t.phases.map((_,i)=>`<button class="btn-sm chtab${!showFinal&&i===pi?" sel":""}" data-act="tr-phase" data-v="${i}">Phase ${i+1}</button>`).join("")}${t.final?`<button class="btn-sm chtab${showFinal?" sel":""}" data-act="tr-phase" data-v="final">Phase finale</button>`:""}</div>`;
+  if(showFinal)return h+renderFinal(a);
+  const ph=t.phases[pi], done=phaseDone(ph)&&!(pi===t.phases.length-1&&toPlace(a).length), isLast=pi===t.phases.length-1&&!t.final;
   const left=ph.poules.reduce((s,p)=>s+p.matches.filter(m=>!m.w).length,0);
   h+=`<div class="bar"><div><h2>Phase ${pi+1}${t.nPhases>1?" / "+t.nPhases:""}</h2><div class="note">${done?"Tous les matchs sont joués":left+" match"+(left>1?"s":"")+" à jouer"} · victoire 2 pts, défaite 0 pt</div></div>`;
-  if(isLast&&t.phases.length<t.nPhases)h+=`<button class="btn-main" data-act="tr-next"${done?"":" disabled"}>Lancer la phase ${t.phases.length+1}</button>`;
-  else if(isLast&&done)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement final</button>`;
+  if(isLast&&t.phases.length<t.nPhases)h+=`<div class="row"><button class="btn-main" data-act="tr-next"${done?"":" disabled"}>Lancer la phase ${t.phases.length+1}</button><button class="btn-sm" data-act="tr-next-hand"${done?"":" disabled"}>Composer la phase ${t.phases.length+1} à la main</button></div>`;
+  else if(isLast&&done)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement</button>`;
   h+=`</div>`;
-  if(isLast&&t.phases.length<t.nPhases)h+=`<p class="note">À la phase ${t.phases.length+1}, tous les 1ers jouent ensemble dans une poule, puis tous les 2es, et ainsi de suite.</p>`;
+  if(isLast&&t.phases.length<t.nPhases)h+=`<p class="note">« Lancer » met tous les 1ers dans une poule, puis tous les 2es… « À la main » crée des poules vides : la poule 1 est le meilleur niveau. Dans les deux cas tu peux ensuite changer des joueurs.</p>`;
+  if(isLast&&t.phases.length===t.nPhases&&done&&!t.final)h+=finalLauncher(a);
+  if(isLast){h+=placementBox(a);if(ph.manual||toPlace(a).length)h+=`<div class="row" style="margin-top:8px"><button class="btn-ghost btn-sm" data-act="tr-addpoule">+ Ajouter une poule</button></div>`}
   ph.poules.forEach(p=>{
     const st=standings(a,p);
     h+=`<section class="stack poule" style="margin-top:18px"><div class="court-h"><h2>${esc(p.label)}</h2><span class="${pouleDone(p)?"chip-free":"chip-next"}">${pouleDone(p)?"terminée":p.matches.filter(m=>m.w).length+"/"+p.matches.length+" matchs"}</span></div>
+      <div class="row ptools">${p.players.length>1?pouleTimer(a,p):""}${isLast&&p.players.length&&view.trPEdit!==p.id?`<button class="btn-ghost btn-sm" data-act="tr-pedit" data-id="${p.id}">Modifier les joueurs</button>`:""}${isLast&&!p.players.length?`<span class="note">Poule vide : place des joueurs ci-dessus.</span><button class="btn-ghost btn-sm" data-act="tr-delpoule" data-id="${p.id}">Supprimer la poule</button>`:""}</div>
+      ${isLast&&view.trPEdit===p.id?poulesEditor(a,p):""}
       <div class="tbl-wrap"><table><thead><tr><th class="num">#</th><th>Joueur</th><th class="num">J</th><th class="num">V</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${st.map(r=>`<tr><td class="num">${medal(r.rank)}</td><td><b>${esc(r.name)}</b></td><td class="num">${r.j}</td><td class="num">${r.v}</td><td class="num"><b>${r.pts}</b></td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>
-      ${p.matches.length?`<div class="list">${p.matches.map(m=>matchRow(a,m)).join("")}</div>`:`<p class="note">Seul dans cette poule : pas de match.</p>`}</section>`;
+      ${p.matches.length?`<div class="list">${p.matches.map(m=>matchRow(a,m)).join("")}</div>`:p.players.length?`<p class="note">Seul dans cette poule : pas de match.</p>`:""}</section>`;
   });
   return h;
 }
 function renderTourRanking(a){
   const t=a.tr, list=finalRanking(a);
   if(!list.length)return `<p class="muted">Le classement apparaît une fois les poules tirées.</p>`;
-  const over=t.phases.length===t.nPhases&&phaseDone(t.phases[t.phases.length-1]);
-  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.phases.length>1?"D'après la dernière phase : la poule des 1ers d'abord, puis celle des 2es…":t.nPoules>1?"Les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score.":"Ordre de la poule."}</div></div></div>`;
-  h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
+  const poolsOver=t.phases.length===t.nPhases&&phaseDone(curPhase(a))&&!toPlace(a).length;
+  const over=t.final?finalDone(t.final):poolsOver;
+  const mode=rankMode(a);
+  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la poule 1 (ou A, ou des 1ers) passent devant ceux de la poule 2, et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
+  h+=`<div class="cchips" style="margin-bottom:10px"><span class="note">Classer</span><button class="btn-sm chtab${mode==="levels"?" sel":""}" data-act="tr-rank" data-v="levels">Par niveau de poule</button><button class="btn-sm chtab${mode==="cross"?" sel":""}" data-act="tr-rank" data-v="cross">En croisant les poules</button></div>`;
+  h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
   if(!over)h+=`<p class="note" style="margin-top:8px">Il reste des matchs${t.phases.length<t.nPhases?" ou des phases":""} : ce classement peut encore bouger.</p>`;
   return h;
 }
@@ -1476,15 +1480,14 @@ function tourSaveSettings(a){
   t.matchFmt=document.getElementById("s-mf").value;
   t.duration=clampInt(document.getElementById("s-tdur").value,3,30,t.duration);
 }
-function findTourMatch(a,id){for(const ph of a.tr.phases)for(const p of ph.poules){const m=p.matches.find(x=>x.id===id);if(m)return m}return null}
+function findTourMatch(a,id){for(const ph of a.tr.phases)for(const p of ph.poules){const m=p.matches.find(x=>x.id===id);if(m)return m}return finalMatches(a.tr.final).find(x=>x.id===id)||null}
 function tourSubmit(a,form){
   if(form.id==="tr-add"){
     const names=parseNames(document.getElementById("tr-names").value).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
     if(!names.length)return;
-    if(a.tr.phases.length&&hasResults(a)){toast("Les poules sont lancées : on ne peut plus ajouter de joueur");return}
     names.forEach(n=>a.players.push({id:uid(),name:n,present:true}));
-    if(a.tr.phases.length)a.tr.phases=[]; // the draw is redone with the new players
-    view.trNames="";commit(a);toast(names.length>1?names.length+" joueurs ajoutés":names[0]+" ajouté");
+    view.trNames="";commit(a);
+    toast((names.length>1?names.length+" joueurs ajoutés":names[0]+" ajouté")+(a.tr.phases.length?" · à placer dans une poule (onglet Poules, Modifier les joueurs)":""));
     const f=document.getElementById("tr-names");if(f)f.focus();return;
   }
   if(form.classList.contains("tm-form")){
@@ -1492,15 +1495,29 @@ function tourSubmit(a,form){
     const sa=parseInt(form.elements.sa.value,10), sb=parseInt(form.elements.sb.value,10);
     if(isNaN(sa)||isNaN(sb)){toast("Entre les deux scores");return}
     if(sa===sb){toast("Il faut un gagnant : les scores ne peuvent pas être égaux");return}
-    m.sa=sa;m.sb=sb;m.w=sa>sb?"a":"b";view.trEdit=null;commit(a);
-    toast(`${pName(a,m.w==="a"?m.a:m.b)} gagne ${Math.max(sa,sb)}–${Math.min(sa,sb)} · +2 pts`);
+    m.sa=sa;m.sb=sb;m.w=sa>sb?"a":"b";view.trEdit=null;
+    if(finalMatches(a.tr.final).includes(m))finalAdvance(a);
+    commit(a);
+    toast(`${pName(a,m.w==="a"?m.a:m.b)} gagne ${Math.max(sa,sb)}–${Math.min(sa,sb)}${finalMatches(a.tr.final).includes(m)?"":" · +2 pts"}`);
   }
 }
 function tourAct(a,act,el){
+  if(tourAct2(a,act,el))return true;
+  if(act==="tr-hand"){a.tr.phases=[];a.tr.final=null;composePhase(a,a.tr.nPoules);view.trPhase=null;view.tab="poules";commit(a);toast(`${a.tr.nPoules} poules vides : place chaque joueur`);return true}
+  if(act==="tr-next-hand"){
+    const last=curPhase(a);const count=last.poules.filter(p=>p.players.length).length;
+    composePhase(a,Math.max(1,count),i=>"Poule "+(i+1));view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} : place les joueurs, la poule 1 est le meilleur niveau`);window.scrollTo(0,0);return true}
+  if(act==="tr-place"){const err=placeIn(a,el.dataset.pid,el.dataset.id);if(err){toast(err);return true}commit(a);return true}
+  if(act==="tr-addpoule"){const ph=curPhase(a);const n=ph.poules.length;ph.poules.push(makePoule(a.tr.phases.length>1||n>=10?"Poule "+(n+1):"Poule "+POULE_LETTERS[n],[]));commit(a);return true}
+  if(act==="tr-delpoule"){const ph=curPhase(a);ph.poules=ph.poules.filter(p=>p.id!==el.dataset.id||p.players.length);commit(a);return true}
+  if(act==="tr-final-size"){view.trFinalSize=+el.dataset.v;render();return true}
+  if(act==="tr-final-go"){const th=document.getElementById("tr-third");view.trThird=th?th.checked:false;launchFinal(a,+el.dataset.v,th&&th.checked);view.trPhase="final";commit(a);toast("Phase finale lancée");window.scrollTo(0,0);return true}
+  if(act==="tr-final-del"){if(view.confirmFinal!==true){view.confirmFinal=true;toast("Touche encore pour annuler la phase finale (les scores de la phase finale seront perdus)");setTimeout(()=>view.confirmFinal=false,4000);return true}a.tr.final=null;view.confirmFinal=false;view.trPhase=null;commit(a);toast("Phase finale annulée");return true}
+  if(act==="tr-rank"){a.tr.rankMode=el.dataset.v;commit(a);return true}
   if(act==="tr-draw"){const err=drawPhase1(a);if(err){toast(err);return true}view.trPhase=null;view.tab="poules";commit(a);toast("Poules tirées au sort");return true}
-  if(act==="tr-del"){a.players=a.players.filter(p=>p.id!==el.dataset.id);commit(a);return true}
+  if(act==="tr-del"){if(a.tr.phases.some(ph=>inPhase(ph,el.dataset.id))){toast("Ce joueur a déjà joué dans une poule");return true}a.players=a.players.filter(p=>p.id!==el.dataset.id);commit(a);return true}
   if(act==="tr-edit"){view.trEdit=el.dataset.id;render();return true}
-  if(act==="tr-phase"){view.trPhase=+el.dataset.v;render();return true}
+  if(act==="tr-phase"){view.trPhase=el.dataset.v==="final"?"final":+el.dataset.v;render();return true}
   if(act==="tr-next"){if(!phaseDone(a.tr.phases[a.tr.phases.length-1])){toast("Il reste des matchs à jouer");return true}nextPhase(a);view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} lancée`);window.scrollTo(0,0);return true}
   if(act==="tr-sugg"){
     const inp=document.getElementById("tr-names");if(!inp)return true;
@@ -1516,6 +1533,199 @@ function trSuggest(input){
   const hits=fold(seg).length?dirSearch(seg,6):[];
   box.innerHTML=hits.map(p=>`<button type="button" class="btn-sm sugg" data-act="tr-sugg" data-v="${esc(fullName(p))}"><b>${esc(p.prenom)}</b> ${esc(p.nom)}</button>`).join("");
   box.hidden=!hits.length;
+}
+
+/* ---------- tournoi : changer les joueurs d'une poule, chrono par poule ----------
+   Only players who have no result yet in the current phase can be moved; the pool's matches are
+   rebuilt around them and the matches already played are kept. */
+const curPhase=a=>a.tr.phases[a.tr.phases.length-1];
+const inPhase=(ph,id)=>ph.poules.find(p=>p.players.includes(id));
+const hasPlayed=(p,id)=>p.matches.some(m=>m.w&&(m.a===id||m.b===id));
+const unplaced=(a,ph)=>a.players.filter(x=>!inPhase(ph,x.id));
+function rebuildPoule(p){
+  const keep=p.matches, out=[];
+  roundRobin(p.players).forEach((pairs,r)=>pairs.forEach(([x,y])=>{
+    const m=keep.find(k=>(k.a===x&&k.b===y)||(k.a===y&&k.b===x));
+    if(m){m.round=r+1;out.push(m)}else out.push({id:uid(),a:x,b:y,round:r+1,sa:null,sb:null,w:null});
+  }));
+  p.matches=out;
+}
+/* put `other` in the place of `id`: a swap if `other` is in another pool, a replacement if not placed */
+function trSwapIn(a,id,other){
+  const ph=curPhase(a), p1=inPhase(ph,id), p2=inPhase(ph,other);
+  if(!p1||hasPlayed(p1,id))return "Ce joueur a déjà un résultat dans cette phase.";
+  if(p2&&hasPlayed(p2,other))return "L'autre joueur a déjà un résultat dans cette phase.";
+  if(p2===p1)return null;
+  p1.players[p1.players.indexOf(id)]=other;
+  if(p2)p2.players[p2.players.indexOf(other)]=id;
+  rebuildPoule(p1);if(p2)rebuildPoule(p2);
+  return null;
+}
+function poulesEditor(a,p){
+  const ph=curPhase(a), others=ph.poules.filter(x=>x!==p), free=unplaced(a,ph);
+  let h=`<div class="pedit stack"><div class="note">Choisis avec qui échanger chaque joueur. Un joueur qui a déjà un résultat dans cette phase ne peut plus bouger.</div><div class="list">`;
+  p.players.forEach(id=>{
+    const locked=hasPlayed(p,id);
+    const opts=others.map(o=>`<optgroup label="${esc(o.label)}">${o.players.filter(x=>!hasPlayed(o,x)).map(x=>`<option value="${x}">${esc(pName(a,x))}</option>`).join("")}</optgroup>`).join("")
+      +(free.length?`<optgroup label="Pas dans une poule">${free.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</optgroup>`:"");
+    h+=`<div class="li"><div class="grow"><b>${esc(pName(a,id))}</b>${locked?`<div class="note">a déjà joué</div>`:""}</div>${locked?"":`<select data-act="tr-swap" data-pid="${id}" aria-label="Changer ${esc(pName(a,id))}"><option value="">Changer avec…</option>${opts}</select><button class="btn-ghost btn-sm" data-act="tr-out" data-pid="${id}" data-id="${p.id}">Retirer</button>`}</div>`;
+  });
+  h+=`</div>`;
+  if(free.length&&p.players.length<10)h+=`<label class="f">Ajouter dans cette poule<select data-act="tr-addto" data-id="${p.id}"><option value="">Choisir un joueur…</option>${free.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></label>`;
+  h+=`<p class="note">Un joueur retiré passe dans « Joueurs à placer », en haut de la phase.</p>`;
+  return h+`<div><button class="btn-sm" data-act="tr-pedit" data-id="${p.id}">Terminer</button></div></div>`;
+}
+function tourChange(a,act,el){
+  const ph=curPhase(a);
+  if(act==="tr-swap"){
+    const other=el.value;if(!other)return;
+    const was=pName(a,el.dataset.pid), now=pName(a,other);
+    const err=trSwapIn(a,el.dataset.pid,other);
+    if(err){toast(err);render();return}
+    commit(a);toast(`${now} prend la place de ${was}`);
+  }
+  if(act==="tr-addto"){
+    const p=ph.poules.find(x=>x.id===el.dataset.id), id=el.value;if(!p||!id)return;
+    p.players.push(id);rebuildPoule(p);commit(a);toast(`${pName(a,id)} ajouté dans ${p.label}`);
+  }
+}
+function pouleTimer(a,p){
+  if(a.tr.matchFmt!=="tbinf")return "";
+  if(!p.timerAt)return `<button class="btn-sm btn-ball" data-act="tr-timer" data-id="${p.id}">▶ Chrono ${a.tr.duration} min</button>`;
+  const end=p.timerAt+a.tr.duration*60000;
+  return `<span class="ptimer${nowMs()>=end?" over":""}" data-tend="${end}" data-id="${p.id}">${timerTxt(end)}</span><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${p.id}">Arrêter</button>`;
+}
+const timerTxt=end=>{const left=end-Date.now();return left>0?mmss(left):"+"+mmss(-left)};
+const tRung=new Set();
+function tourTick(a){
+  document.querySelectorAll("[data-tend]").forEach(s=>{
+    const end=+s.dataset.tend;s.textContent=timerTxt(end);
+    const over=Date.now()>=end;s.classList.toggle("over",over);
+    const key=s.dataset.id+"@"+end;
+    if(over&&!tRung.has(key)){tRung.add(key);if(Date.now()-end<5000){beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}}
+  });
+}
+function tourAct2(a,act,el){
+  const ph=curPhase(a), p=el.dataset.id&&ph&&ph.poules.find(x=>x.id===el.dataset.id);
+  if(act==="tr-pedit"){view.trPEdit=view.trPEdit===el.dataset.id?null:el.dataset.id;render();return true}
+  if(act==="tr-out"){
+    const id=el.dataset.pid;if(!p||hasPlayed(p,id)){toast("Ce joueur a déjà un résultat");return true}
+    p.players=p.players.filter(x=>x!==id);rebuildPoule(p);commit(a);toast(`${pName(a,id)} retiré de ${p.label}`);return true}
+  if(act==="tr-timer"||act==="tr-timer-stop"){
+    const v=act==="tr-timer"?Date.now():null, id=el.dataset.id;
+    if(id.startsWith("fin-")){const f=a.tr.final;if(f){f.tm=f.tm||{};f.tm[id.slice(4)]=v;commit(a)}return true}
+    const pp=a.tr.phases.flatMap(x=>x.poules).find(x=>x.id===id);if(pp){pp.timerAt=v;commit(a)}return true}
+  return false;
+}
+
+/* ---------- tournoi : composition à la main, classement par niveau, phase finale ---------- */
+const shortLabel=l=>String(l).replace(/^Poule (des )?/,"");
+/* empty pools for a phase composed by hand: players are then placed one by one */
+function composePhase(a,count,labels){
+  const poules=[...Array(count)].map((_,i)=>makePoule(labels?labels(i):"Poule "+POULE_LETTERS[i],[]));
+  a.tr.phases.push({poules,manual:true});
+}
+function placeIn(a,id,pouleId){
+  const ph=curPhase(a), p=ph.poules.find(x=>x.id===pouleId);if(!p)return;
+  const was=inPhase(ph,id);
+  if(was){if(hasPlayed(was,id))return "Ce joueur a déjà un résultat dans cette phase.";was.players=was.players.filter(x=>x!==id);rebuildPoule(was)}
+  p.players.push(id);rebuildPoule(p);return null;
+}
+/* players still to place in the current phase: in phase 2+ only those who played the phase before */
+function toPlace(a){
+  const t=a.tr, ph=curPhase(a);
+  const pool=t.phases.length>1?t.phases[t.phases.length-2].poules.flatMap(p=>p.players):a.players.map(p=>p.id);
+  return [...new Set(pool)].filter(id=>!inPhase(ph,id)&&a.players.some(p=>p.id===id));
+}
+function placementBox(a){
+  const ph=curPhase(a), list=toPlace(a);
+  if(!list.length)return "";
+  return `<section class="stack place-box"><div class="court-h"><h2>Joueurs à placer · ${list.length}</h2></div><p class="note">Touche la poule de chaque joueur.</p><div class="list">${list.map(id=>`<div class="li"><div class="grow"><b>${esc(pName(a,id))}</b></div><div class="cchips">${ph.poules.map(p=>`<button class="btn-sm cchip ok" data-act="tr-place" data-pid="${id}" data-id="${p.id}">${esc(shortLabel(p.label))}<small>${p.players.length} joueur${p.players.length>1?"s":""}</small></button>`).join("")}</div></div>`).join("")}</div></section>`;
+}
+/* --- phase finale: knockout between the best of the ranking, best seed against weakest --- */
+const SEED_ORDER={2:[1,2],4:[1,4,2,3],8:[1,8,4,5,2,7,3,6]};
+const roundName=(n,size)=>n===1?"Finale":n===2?"Demi-finales":n===4?"Quarts de finale":"Tour";
+function launchFinal(a,size,third){
+  const rk=poolRanking(a).slice(0,size);
+  const seeds=SEED_ORDER[size].map(s=>rk[s-1].id);
+  const r1=[];for(let i=0;i<seeds.length;i+=2)r1.push({id:uid(),a:seeds[i],b:seeds[i+1],round:1,sa:null,sb:null,w:null});
+  a.tr.final={size,third:!!third,rounds:[r1],small:null};
+  finalAdvance(a);
+}
+const winnerOf=m=>m.w?(m.w==="a"?m.a:m.b):null;
+const loserOf=m=>m.w?(m.w==="a"?m.b:m.a):null;
+/* rebuild the next rounds from the results: a match whose players change loses its result */
+function finalAdvance(a){
+  const f=a.tr.final;if(!f)return;
+  for(let r=1;r<f.rounds.length+1;r++){
+    const prev=f.rounds[r-1];if(prev.length<2){f.rounds.length=r;break}
+    const want=[];for(let i=0;i<prev.length;i+=2)want.push([winnerOf(prev[i]),winnerOf(prev[i+1])]);
+    if(want.some(([x,y])=>!x||!y)){f.rounds.length=r;break}
+    const cur=f.rounds[r]||[];
+    f.rounds[r]=want.map(([x,y],i)=>cur[i]&&cur[i].a===x&&cur[i].b===y?cur[i]:{id:uid(),a:x,b:y,round:r+1,sa:null,sb:null,w:null});
+  }
+  // match for 3rd place, once both semi-finals are played
+  const semis=f.rounds.find(r=>r.length===2);
+  if(f.third&&semis&&semis.every(m=>m.w)){
+    const x=loserOf(semis[0]),y=loserOf(semis[1]);
+    if(!(f.small&&f.small.a===x&&f.small.b===y))f.small={id:uid(),a:x,b:y,round:0,sa:null,sb:null,w:null};
+  }else f.small=null;
+}
+const finalMatches=f=>f?f.rounds.flat().concat(f.small?[f.small]:[]):[];
+const finalDone=f=>{if(!f)return false;const last=f.rounds[f.rounds.length-1];return last.length===1&&!!last[0].w&&(!f.third||!f.small||!!f.small.w)};
+function renderFinal(a){
+  const f=a.tr.final;
+  let h=`<div class="bar"><div><h2>Phase finale</h2><div class="note">${f.size} qualifiés · le mieux classé joue contre le moins bien classé${f.third?" · match pour la 3e place":""}</div></div>${finalDone(f)?`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement final</button>`:""}</div>`;
+  f.rounds.forEach((r,ri)=>{h+=`<section class="stack" style="margin-top:16px"><h2>${roundName(r.length)}</h2>${pouleTimerFinal(a,r,"r"+ri)}<div class="list">${r.map(m=>matchRow(a,m,roundName(r.length).charAt(0))).join("")}</div></section>`});
+  if(f.small)h+=`<section class="stack" style="margin-top:16px"><h2>Match pour la 3e place</h2>${pouleTimerFinal(a,[f.small],"small")}<div class="list">${matchRow(a,f.small,"3e")}</div></section>`;
+  const nextLeft=f.rounds[f.rounds.length-1].some(m=>!m.w);
+  if(!finalDone(f)&&!nextLeft&&f.rounds[f.rounds.length-1].length>1)h+=`<p class="note">Le tour suivant se crée dès que tous les matchs de ce tour sont validés.</p>`;
+  h+=`<div style="margin-top:18px"><button class="btn-danger btn-sm" data-act="tr-final-del">Annuler la phase finale</button></div>`;
+  return h;
+}
+const pouleTimerFinal=(a,r,key)=>{if(a.tr.matchFmt!=="tbinf")return "";const tm=a.tr.final.tm||{};return `<div class="row ptools">${pouleTimer(a,{id:"fin-"+key,timerAt:tm[key]||null})}</div>`};
+function finalLauncher(a){
+  const n=poolRanking(a).length;
+  const sizes=[2,4,8].filter(s=>s<=n);
+  if(!sizes.length)return "";
+  const sel=view.trFinalSize&&sizes.includes(view.trFinalSize)?view.trFinalSize:sizes[Math.min(1,sizes.length-1)];
+  return `<div class="panel stack" style="margin-top:14px"><h3>Phase finale (facultatif)</h3><p class="note">Les mieux classés jouent un tableau à élimination : 1er contre ${sel}e, 2e contre ${sel-1}e…</p>
+    <div class="cchips"><span class="note">Qualifiés</span>${sizes.map(s=>`<button class="btn-sm chtab${s===sel?" sel":""}" data-act="tr-final-size" data-v="${s}">${s} joueurs<small>${s===2?"finale":s===4?"demies":"quarts"}</small></button>`).join("")}</div>
+    ${sel>=4?`<label class="check" style="font-weight:600"><input type="checkbox" id="tr-third" ${view.trThird===false?"":"checked"}> Match pour la 3e place</label>`:""}
+    <div><button class="btn-main" data-act="tr-final-go" data-v="${sel}">Lancer la phase finale</button></div></div>`;
+}
+/* ranking from the pools of the last phase: by pool level (pool 1/A above pool 2/B), or crossing the pools */
+function rankMode(a){const m=a.tr.rankMode||"auto";return m==="auto"?(a.tr.phases.length>1||curPhase(a).manual?"levels":"cross"):m}
+function poolRanking(a){
+  const t=a.tr;if(!t.phases.length)return [];
+  const ph=curPhase(a);
+  const tables=ph.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>Object.assign({},r,{poule:p.label})));
+  const list=rankMode(a)==="levels"?[].concat(...tables)
+    :[].concat(...tables).sort((x,y)=>x.rank-y.rank||y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
+  list.forEach((r,i)=>r.final=i+1);
+  return list;
+}
+/* the knockout decides the first places; everybody else keeps the pool ranking */
+function finalRanking(a){
+  const base=poolRanking(a), f=a.tr.final;
+  if(!f)return base;
+  const pos={}, inBracket=new Set(f.rounds[0].flatMap(m=>[m.a,m.b]));
+  const last=f.rounds[f.rounds.length-1];
+  if(last.length===1&&last[0].w){pos[winnerOf(last[0])]=1;pos[loserOf(last[0])]=2}
+  if(f.small&&f.small.w){pos[winnerOf(f.small)]=3;pos[loserOf(f.small)]=4}
+  // players knocked out in a round share the places of that round, in pool-ranking order
+  const order=base.map(r=>r.id);
+  let next=1+Object.keys(pos).length;
+  for(let r=f.rounds.length-1;r>=0;r--){
+    const out=f.rounds[r].filter(m=>m.w).map(loserOf).filter(id=>pos[id]==null).sort((x,y)=>order.indexOf(x)-order.indexOf(y));
+    out.forEach(id=>{pos[id]=Object.keys(pos).length+1});
+  }
+  const decided=base.filter(r=>pos[r.id]!=null).sort((x,y)=>pos[x.id]-pos[y.id]);
+  const pending=base.filter(r=>pos[r.id]==null&&inBracket.has(r.id));
+  const rest=base.filter(r=>!inBracket.has(r.id));
+  const list=decided.concat(pending,rest).map(r=>Object.assign({},r,{tag:pos[r.id]===1?"Vainqueur":pos[r.id]===2?"Finaliste":pos[r.id]===3&&f.small?"3e place":inBracket.has(r.id)?"Phase finale":""}));
+  list.forEach((r,i)=>r.final=i+1);
+  return list;
 }
 
 /* ---------- events ---------- */
@@ -1626,6 +1836,7 @@ $app.addEventListener("change",e=>{
   if(e.target.id==="f-format"){const v=e.target.value;document.getElementById("fs-rot").hidden=v!=="rotation";document.getElementById("fs-tour").hidden=v!=="tournoi";document.getElementById("fs-match").hidden=v==="rotation"||v==="tournoi";return}
   const el=e.target;const act=el.dataset&&el.dataset.act;if(!act)return;
   const a=anim();if(!a)return;
+  if(act.startsWith("tr-")){tourChange(a,act,el);return}
   const m=a.matches.find(x=>x.id===el.dataset.id);
   if(act==="score"){m.score=el.value.trim();commit(a)}
   if(act==="defi-ok"){m.defiCount=el.checked?1:0;commit(a)}
@@ -1646,6 +1857,7 @@ function beep(){if(!audio)return;try{[0,0.35,0.7].forEach(t=>{const o=audio.crea
 setInterval(()=>{
   const a=view.animId&&store.animations[view.animId];if(!a)return;
   if(isFlow(a)){if(view.tab==="terrain")flowTick(a);return}
+  if(isTour(a)){tourTick(a);return}
   document.querySelectorAll(".court[data-mid]").forEach(card=>{
     const m=a.matches.find(x=>x.id===card.dataset.mid);if(!m||m.status!=="playing")return;
     const c=clock(a,m);card.querySelector(".clock").textContent=c.text;card.classList.toggle("over",c.over);
