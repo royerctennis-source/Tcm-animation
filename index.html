@@ -1755,6 +1755,7 @@ function tourAct(a,act,el){
   if(act==="tr-addpoule"){const ph=curPhase(a);const n=ph.poules.length;ph.poules.push(makePoule(pouleName(a,n,a.tr.phases.length-1),[]));commit(a);return true}
   if(act==="tr-delpoule"){const ph=curPhase(a);ph.poules=ph.poules.filter(p=>p.id!==el.dataset.id||p.players.length);commit(a);return true}
   if(act==="tr-final-size"){view.trFinalSize=+el.dataset.v;render();return true}
+  if(act==="tr-final-places"){launchPlaces(a);view.trPhase="final";commit(a);toast("Matchs de classement lancés");window.scrollTo(0,0);return true}
   if(act==="tr-final-go"){const th=document.getElementById("tr-third");view.trThird=th?th.checked:false;launchFinal(a,+el.dataset.v,th&&th.checked);view.trPhase="final";commit(a);toast("Phase finale lancée");window.scrollTo(0,0);return true}
   if(act==="tr-final-del"){if(view.confirmFinal!==true){view.confirmFinal=true;toast("Touche encore pour annuler la phase finale (les scores de la phase finale seront perdus)");setTimeout(()=>view.confirmFinal=false,4000);return true}a.tr.final=null;view.confirmFinal=false;view.trPhase=null;commit(a);toast("Phase finale annulée");return true}
   if(act==="tr-np"){view.trNP=Math.max(1,Math.min(10,+el.dataset.v));render();return true}
@@ -1947,6 +1948,43 @@ function placementBox(a){
 /* --- phase finale: knockout between the best of the ranking, best seed against weakest --- */
 const SEED_ORDER={2:[1,2],4:[1,4,2,3],8:[1,8,4,5,2,7,3,6]};
 const roundName=(n,size)=>n===1?"Finale":n===2?"Demi-finales":n===4?"Quarts de finale":"Tour";
+/* Placement final: everybody plays the player of the same place in another pool (1st v 1st, 2nd v 2nd…).
+   With more than 2 pools, players of one place are lined up best first and paired 1v2, 3v4…; an odd one has no match. */
+function placeGroups(a){
+  const tables=curPhase(a).poules.filter(p=>p.players.length).map(p=>standings(a,p));
+  const depth=Math.max(0,...tables.map(t=>t.length)), groups=[];
+  for(let r=1;r<=depth;r++){
+    const ids=tables.map(t=>t[r-1]).filter(Boolean).sort((x,y)=>y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour).map(x=>x.id);
+    const matches=[];for(let i=0;i+1<ids.length;i+=2)matches.push({id:uid(),a:ids[i],b:ids[i+1],round:r,sa:null,sb:null,w:null});
+    groups.push({place:r,matches,bye:ids.length%2?ids[ids.length-1]:null});
+  }
+  return groups;
+}
+function launchPlaces(a){a.tr.final={mode:"places",groups:placeGroups(a)}}
+const placeTitle=r=>r===1?"Match des 1ers":"Match des "+r+"es";
+function renderPlaces(a){
+  const f=a.tr.final;
+  let h=`<div class="bar"><div><h2>Phase finale</h2><div class="note">Matchs de classement : 1er contre 1er, 2e contre 2e… Le gagnant prend la meilleure place.</div></div>${finalDone(f)?`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement final</button>`:""}</div>`;
+  h+=pouleTimerFinal(a,[1],"pl");
+  f.groups.forEach(g=>{
+    h+=`<section class="stack" style="margin-top:14px"><h2>${placeTitle(g.place)}</h2>${g.matches.length?`<div class="list">${g.matches.map(m=>matchRow(a,m,g.place+(g.place===1?"er":"e"))).join("")}</div>`:""}${g.bye?`<p class="note">${esc(pName(a,g.bye))} n'a pas d'adversaire à cette place.</p>`:""}</section>`;
+  });
+  return h+`<div style="margin-top:18px"><button class="btn-danger btn-sm" data-act="tr-final-del">Annuler la phase finale</button></div>`;
+}
+function placesRanking(a,base){
+  const f=a.tr.final, byId=new Map(base.map(r=>[r.id,r])), out=[], seen=new Set();
+  f.groups.forEach(g=>{
+    const tag=placeTitle(g.place);
+    g.matches.forEach(m=>{
+      const first=m.w?winnerOf(m):m.a, second=m.w?loserOf(m):m.b;
+      [first,second].forEach((id,k)=>{const r=byId.get(id);if(r&&!seen.has(id)){seen.add(id);out.push(Object.assign({},r,{tag:m.w?(k?"Perdant":"Gagnant")+" · "+tag.toLowerCase():tag+" à jouer"}))}});
+    });
+    if(g.bye){const r=byId.get(g.bye);if(r&&!seen.has(g.bye)){seen.add(g.bye);out.push(Object.assign({},r,{tag:"Sans match à cette place"}))}}
+  });
+  base.forEach(r=>{if(!seen.has(r.id))out.push(r)});
+  out.forEach((r,i)=>r.final=i+1);
+  return out;
+}
 function launchFinal(a,size,third){
   const rk=poolRanking(a).slice(0,size);
   const seeds=SEED_ORDER[size].map(s=>rk[s-1].id);
@@ -1958,7 +1996,7 @@ const winnerOf=m=>m.w?(m.w==="a"?m.a:m.b):null;
 const loserOf=m=>m.w?(m.w==="a"?m.b:m.a):null;
 /* rebuild the next rounds from the results: a match whose players change loses its result */
 function finalAdvance(a){
-  const f=a.tr.final;if(!f)return;
+  const f=a.tr.final;if(!f||f.mode==="places")return;
   for(let r=1;r<f.rounds.length+1;r++){
     const prev=f.rounds[r-1];if(prev.length<2){f.rounds.length=r;break}
     const want=[];for(let i=0;i<prev.length;i+=2)want.push([winnerOf(prev[i]),winnerOf(prev[i+1])]);
@@ -1973,10 +2011,11 @@ function finalAdvance(a){
     if(!(f.small&&f.small.a===x&&f.small.b===y))f.small={id:uid(),a:x,b:y,round:0,sa:null,sb:null,w:null};
   }else f.small=null;
 }
-const finalMatches=f=>f?f.rounds.flat().concat(f.small?[f.small]:[]):[];
-const finalDone=f=>{if(!f)return false;const last=f.rounds[f.rounds.length-1];return last.length===1&&!!last[0].w&&(!f.third||!f.small||!!f.small.w)};
+const finalMatches=f=>!f?[]:f.mode==="places"?f.groups.flatMap(g=>g.matches):f.rounds.flat().concat(f.small?[f.small]:[]);
+const finalDone=f=>{if(!f)return false;if(f.mode==="places")return finalMatches(f).every(m=>m.w);const last=f.rounds[f.rounds.length-1];return last.length===1&&!!last[0].w&&(!f.third||!f.small||!!f.small.w)};
 function renderFinal(a){
   const f=a.tr.final;
+  if(f.mode==="places")return renderPlaces(a);
   let h=`<div class="bar"><div><h2>Phase finale</h2><div class="note">${f.size} qualifiés · le mieux classé joue contre le moins bien classé${f.third?" · match pour la 3e place":""}</div></div>${finalDone(f)?`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement final</button>`:""}</div>`;
   f.rounds.forEach((r,ri)=>{h+=`<section class="stack" style="margin-top:16px"><h2>${roundName(r.length)}</h2>${pouleTimerFinal(a,r,"r"+ri)}<div class="list">${r.map(m=>matchRow(a,m,roundName(r.length).charAt(0))).join("")}</div></section>`});
   if(f.small)h+=`<section class="stack" style="margin-top:16px"><h2>Match pour la 3e place</h2>${pouleTimerFinal(a,[f.small],"small")}<div class="list">${matchRow(a,f.small,"3e")}</div></section>`;
@@ -1994,7 +2033,8 @@ function finalLauncher(a){
   return `<div class="panel stack" style="margin-top:14px"><h3>Phase finale (facultatif)</h3><p class="note">Les mieux classés jouent un tableau à élimination : 1er contre ${sel}e, 2e contre ${sel-1}e…</p>
     <div class="cchips"><span class="note">Qualifiés</span>${sizes.map(s=>`<button class="btn-sm chtab${s===sel?" sel":""}" data-act="tr-final-size" data-v="${s}">${s} joueurs<small>${s===2?"finale":s===4?"demies":"quarts"}</small></button>`).join("")}</div>
     ${sel>=4?`<label class="check" style="font-weight:600"><input type="checkbox" id="tr-third" ${view.trThird===false?"":"checked"}> Match pour la 3e place</label>`:""}
-    <div><button class="btn-main" data-act="tr-final-go" data-v="${sel}">Lancer la phase finale</button></div></div>`;
+    <div><button class="btn-main" data-act="tr-final-go" data-v="${sel}">Lancer le tableau final</button></div>
+    ${curPhase(a).poules.filter(p=>p.players.length).length>1?`<div class="stack" style="border-top:1px solid var(--line);padding-top:10px"><b>Ou : matchs de classement pour tous</b><p class="note">Chaque joueur affronte celui de la même place dans une autre poule : 1er contre 1er, 2e contre 2e, 3e contre 3e… Le gagnant prend la meilleure des deux places.</p><div><button class="btn-sm" data-act="tr-final-places">Lancer les matchs de classement</button></div></div>`:""}</div>`;
 }
 /* ranking from the pools of the last phase: by pool level (pool 1/A above pool 2/B), or crossing the pools */
 function rankMode(a){const m=a.tr.rankMode||"auto";return m==="auto"?(a.tr.phases.length>1||curPhase(a).manual?"levels":"cross"):m}
@@ -2029,6 +2069,7 @@ function poolRanking(a){
 function finalRanking(a){
   const base=poolRanking(a), f=a.tr.final;
   if(!f)return base;
+  if(f.mode==="places")return placesRanking(a,base);
   const pos={}, inBracket=new Set(f.rounds[0].flatMap(m=>[m.a,m.b]));
   const last=f.rounds[f.rounds.length-1];
   if(last.length===1&&last[0].w){pos[winnerOf(last[0])]=1;pos[loserOf(last[0])]=2}
@@ -2083,7 +2124,8 @@ function tourWorkbook(XL,a){
   });
   if(t.final){
     const rows=[["Phase finale"],[],["Tour","Joueur 1","Score 1","Score 2","Joueur 2","Gagnant"]];
-    t.final.rounds.forEach(r=>r.forEach(m=>{const [x,y]=sc(m);rows.push([roundName(r.length),pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}));
+    if(t.final.mode==="places")t.final.groups.forEach(g=>g.matches.forEach(m=>{const [x,y]=sc(m);rows.push([placeTitle(g.place),pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}));
+    else t.final.rounds.forEach(r=>r.forEach(m=>{const [x,y]=sc(m);rows.push([roundName(r.length),pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}));
     if(t.final.small){const m=t.final.small,[x,y]=sc(m);rows.push(["3e place",pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])}
     add("Phase finale",rows,[16,18,8,8,18,18]);
   }
@@ -2141,6 +2183,7 @@ function pubRanking(a,big){
 }
 function pubFinal(a){
   const f=a.tr.final;if(!f)return "";
+  if(f.mode==="places")return `<section class="pcard"><div class="court-h"><h2>Matchs de classement</h2></div>${f.groups.filter(g=>g.matches.length).map(g=>`<h3>${placeTitle(g.place)}</h3><ul class="pml">${g.matches.map(m=>pubMatchLine(a,m,g.place+(g.place===1?"er":"e"))).join("")}</ul>`).join("")}</section>`;
   return `<section class="pcard"><div class="court-h"><h2>Phase finale</h2></div>${f.rounds.map(r=>`<h3>${roundName(r.length)}</h3><ul class="pml">${r.map(m=>pubMatchLine(a,m,roundName(r.length).charAt(0))).join("")}</ul>`).join("")}${f.small?`<h3>3e place</h3><ul class="pml">${pubMatchLine(a,f.small,"3e")}</ul>`:""}</section>`;
 }
 /* phone view for parents */
