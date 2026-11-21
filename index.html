@@ -1526,37 +1526,48 @@ function standings(a,poule){
 }
 const pouleDone=p=>p.matches.every(m=>m.w);
 const phaseDone=ph=>ph.poules.every(pouleDone);
-/* next phase: keep the chosen places (1st, 2nd…) and group them `per` places by pool (1 = all the 1sts together…) */
-function nextPhase(a,keep,per){
-  const t=a.tr, last=t.phases[t.phases.length-1];
-  const tables=last.poules.filter(p=>p.players.length).map(p=>standings(a,p));
-  const depth=Math.max(...tables.map(s=>s.length));
-  const ranks=[...Array(depth)].map((_,i)=>i+1).filter(r=>!keep||keep.includes(r));
-  const step=per==="all"?ranks.length:(per||1);
-  const poules=[];
-  for(let i=0;i<ranks.length;i+=step){
-    const rs=ranks.slice(i,i+step);
-    const ids=[].concat(...rs.map(r=>tables.map(s=>s[r-1]).filter(Boolean).map(x=>x.id)));
-    if(!ids.length)continue;
-    const lbl=rs.length===1?"Poule des "+ordinal(rs[0]):rs.length===2?"Poule des "+ordinal(rs[0])+" et "+ordinal(rs[1]):"Poule des "+ordinal(rs[0])+" aux "+ordinal(rs[rs.length-1]);
-    poules.push(makePoule(lbl,ids));
-  }
-  t.phases.push({poules});
-}
-function nextPhaseBox(a){
+/* Next phase. Players are lined up by place: all the 1sts, then all the 2nds…, and inside one place the best
+   first (points, then score difference, then points scored). The pools are then filled in that order:
+   pool 1 takes the first ones, pool 2 the next ones… so a pool of 1sts that needs filling takes the best 2nds. */
+function placeOrder(a){
   const last=curPhase(a);
-  const depth=Math.max(...last.poules.map(p=>p.players.length));
-  const keep=(view.trKeep||[...Array(depth)].map((_,i)=>i+1)).filter(r=>r<=depth);
-  const per=view.trPer||1;
-  const n=a.tr.phases.length+1;
-  const nb=last.poules.filter(p=>p.players.length).length;
-  const k=keep.length, step=per==="all"?k:per;
-  const preview=[];for(let i=0;i<k;i+=step)preview.push(keep.slice(i,i+step));
+  const tables=last.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>Object.assign(r,{from:p.label})));
+  const depth=Math.max(0,...tables.map(t=>t.length));
+  const out=[];
+  for(let r=1;r<=depth;r++){
+    const same=tables.map(t=>t[r-1]).filter(Boolean)
+      .sort((x,y)=>y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
+    same.forEach((x,k)=>out.push(Object.assign(x,{place:r,best:k+1,of:same.length})));
+  }
+  return out;
+}
+function nextDefaults(a){
+  const last=curPhase(a), used=last.poules.filter(p=>p.players.length);
+  const depth=Math.max(1,...used.map(p=>p.players.length));
+  return {nP:Math.min(10,depth),size:Math.max(2,Math.min(10,used.length))};
+}
+function planNext(a,nP,size){
+  const order=placeOrder(a), take=order.slice(0,nP*size), groups=[];
+  for(let i=0;i<nP;i++){const g=take.slice(i*size,(i+1)*size);if(g.length)groups.push(g)}
+  return {groups,out:order.slice(nP*size)};
+}
+const nextLabel=(g,i)=>{const places=[...new Set(g.map(x=>x.place))];return places.length===1?"Poule des "+ordinal(places[0]):"Poule "+(i+1)};
+function nextPhase(a,nP,size){
+  const {groups}=planNext(a,nP,size);
+  a.tr.phases.push({poules:groups.map((g,i)=>makePoule(nextLabel(g,i),g.map(x=>x.id)))});
+}
+const whoTag=x=>x.place===1&&x.of>1?"1er "+shortLabel(x.from):x.place===1?"1er":(x.best===1?"meilleur ":x.best+"e meilleur ")+ordinal(x.place).replace(/s$/,"");
+function nextPhaseBox(a){
+  const d=nextDefaults(a), n=a.tr.phases.length+1;
+  const nP=Math.max(1,Math.min(10,view.trNP||d.nP)), size=Math.max(2,Math.min(10,view.trSize||d.size));
+  const {groups,out}=planNext(a,nP,size);
+  const step=(act,v,lo,hi,lbl)=>`<div class="dur" style="margin:0" role="group" aria-label="${lbl}"><b>${lbl}</b><button data-act="${act}" data-v="${v-1}"${v<=lo?" disabled":""} aria-label="moins">−</button><span class="capn">${v}</span><button data-act="${act}" data-v="${v+1}"${v>=hi?" disabled":""} aria-label="plus">+</button></div>`;
   return `<div class="panel stack" style="margin-top:12px"><h3>Préparer la phase ${n}</h3>
-    <div class="cchips"><span class="note">Places qualifiées</span>${[...Array(depth)].map((_,i)=>i+1).map(r=>`<button class="btn-sm chtab${keep.includes(r)?" sel":""}" data-act="tr-keep" data-v="${r}" data-d="${depth}">${r===1?"1ers":r+"es"}</button>`).join("")}</div>
-    <div class="cchips"><span class="note">Poules</span>${[[1,"1 place par poule","1ers ensemble, 2es ensemble…"],[2,"2 places par poule","1ers et 2es ensemble…"],["all","Une seule poule","tous les qualifiés"]].map(([v,l,d])=>`<button class="btn-sm chtab${String(per)===String(v)?" sel":""}" data-act="tr-per" data-v="${v}">${l}<small>${d}</small></button>`).join("")}</div>
-    <p class="note">${k?preview.map(rs=>`Poule ${rs.map(r=>r===1?"des 1ers":"des "+r+"es").join(" + ")} : ${rs.length*nb} joueurs`).join(" · "):"Choisis au moins une place."}${k<depth?" · Les autres places s'arrêtent là et gardent leur rang de cette phase.":""}</p>
-    <div class="row"><button class="btn-main" data-act="tr-next"${k?"":" disabled"}>Lancer la phase ${n}</button><button class="btn-sm" data-act="tr-next-hand">Composer la phase ${n} à la main</button></div></div>`;
+    ${step("tr-np",nP,1,10,"Poules")}${step("tr-size",size,2,10,"Joueurs par poule")}
+    <p class="note">Les 1ers vont ensemble, puis les 2es… Si une poule n'est pas pleine, elle est complétée par les meilleurs de la place suivante (meilleurs 2es, meilleurs 3es…), départagés aux points puis à l'écart de score.</p>
+    <div class="list">${groups.map((g,i)=>`<div><b>${esc(nextLabel(g,i))}</b> · ${g.length} joueurs<div class="note">${g.map(x=>`${esc(x.name)} <span class="muted">(${esc(whoTag(x))})</span>`).join(", ")}</div></div>`).join("")}
+      ${out.length?`<div><b>S'arrêtent là</b> · ${out.length}<div class="note">${out.map(x=>esc(x.name)).join(", ")}</div></div>`:""}</div>
+    <div class="row"><button class="btn-main" data-act="tr-next">Lancer la phase ${n}</button><button class="btn-sm" data-act="tr-next-hand">Composer la phase ${n} à la main (${nP} poules vides)</button></div></div>`;
 }
 const starTag=(a,id)=>{const s=(a.players.find(p=>p.id===id)||{}).stars||0;return s?` <span class="stag" aria-label="${s} étoile${s>1?"s":""}">${"★".repeat(s)}</span>`:""};
 function matchFmtLabel(t){return t.matchFmt==="tbinf"?`Tie-break infini au temps (${t.duration} min)`:FORMATS[t.matchFmt]}
@@ -1704,7 +1715,7 @@ function tourAct(a,act,el){
   if(tourAct2(a,act,el))return true;
   if(act==="tr-hand"){a.tr.phases=[];a.tr.final=null;composePhase(a,a.tr.nPoules);view.trPhase=null;view.tab="poules";commit(a);toast(`${a.tr.nPoules} poules vides : place chaque joueur`);return true}
   if(act==="tr-next-hand"){
-    const last=curPhase(a);const count=last.poules.filter(p=>p.players.length).length;
+    const count=view.trNP||nextDefaults(a).nP;view.trNP=null;view.trSize=null;
     composePhase(a,Math.max(1,count),i=>"Poule "+(i+1));view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} : place les joueurs, la poule 1 est le meilleur niveau`);window.scrollTo(0,0);return true}
   if(act==="tr-place"){const err=placeIn(a,el.dataset.pid,el.dataset.id);if(err){toast(err);return true}commit(a);return true}
   if(act==="tr-addpoule"){const ph=curPhase(a);const n=ph.poules.length;ph.poules.push(makePoule(a.tr.phases.length>1||n>=10?"Poule "+(n+1):"Poule "+POULE_LETTERS[n],[]));commit(a);return true}
@@ -1712,8 +1723,8 @@ function tourAct(a,act,el){
   if(act==="tr-final-size"){view.trFinalSize=+el.dataset.v;render();return true}
   if(act==="tr-final-go"){const th=document.getElementById("tr-third");view.trThird=th?th.checked:false;launchFinal(a,+el.dataset.v,th&&th.checked);view.trPhase="final";commit(a);toast("Phase finale lancée");window.scrollTo(0,0);return true}
   if(act==="tr-final-del"){if(view.confirmFinal!==true){view.confirmFinal=true;toast("Touche encore pour annuler la phase finale (les scores de la phase finale seront perdus)");setTimeout(()=>view.confirmFinal=false,4000);return true}a.tr.final=null;view.confirmFinal=false;view.trPhase=null;commit(a);toast("Phase finale annulée");return true}
-  if(act==="tr-keep"){const d=+el.dataset.d,r=+el.dataset.v;let k=view.trKeep||[...Array(d)].map((_,i)=>i+1);k=k.includes(r)?k.filter(x=>x!==r):k.concat(r).sort((x,y)=>x-y);view.trKeep=k;render();return true}
-  if(act==="tr-per"){view.trPer=el.dataset.v==="all"?"all":+el.dataset.v;render();return true}
+  if(act==="tr-np"){view.trNP=Math.max(1,Math.min(10,+el.dataset.v));render();return true}
+  if(act==="tr-size"){view.trSize=Math.max(2,Math.min(10,+el.dataset.v));render();return true}
   if(act==="tr-phase-del"){view.confirmPhaseDel=true;render();return true}
   if(act==="tr-phase-del-cancel"){view.confirmPhaseDel=false;render();return true}
   if(act==="tr-phase-del-go"){
@@ -1735,7 +1746,7 @@ function tourAct(a,act,el){
   if(act==="tr-del"){if(a.tr.phases.some(ph=>inPhase(ph,el.dataset.id))){toast("Ce joueur a déjà joué dans une poule");return true}a.players=a.players.filter(p=>p.id!==el.dataset.id);commit(a);return true}
   if(act==="tr-edit"){view.trEdit=el.dataset.id;render();return true}
   if(act==="tr-phase"){view.trPhase=el.dataset.v==="final"?"final":+el.dataset.v;render();return true}
-  if(act==="tr-next"){if(!phaseDone(a.tr.phases[a.tr.phases.length-1])){toast("Il reste des matchs à jouer");return true}nextPhase(a,view.trKeep,view.trPer||1);view.trKeep=null;view.trPer=null;view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} lancée`);window.scrollTo(0,0);return true}
+  if(act==="tr-next"){if(!phaseDone(a.tr.phases[a.tr.phases.length-1])){toast("Il reste des matchs à jouer");return true}{const d=nextDefaults(a);nextPhase(a,view.trNP||d.nP,view.trSize||d.size)}view.trNP=null;view.trSize=null;view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} lancée`);window.scrollTo(0,0);return true}
   if(act==="tr-sugg"){
     const inp=document.getElementById("tr-names");if(!inp)return true;
     const parts=inp.value.split(",");parts[parts.length-1]=(parts.length>1?" ":"")+el.dataset.v;
