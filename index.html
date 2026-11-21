@@ -133,9 +133,17 @@ details summary{list-style-position:inside}
 .tw{font-weight:700;color:var(--ok)}
 .tl{color:var(--muted)}
 .tsc{font-family:var(--display);font-size:1.15rem;margin:0 6px;font-variant-numeric:tabular-nums}
-.tm-in{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.tm-in label{display:flex;align-items:center;gap:6px;font-weight:600}
-.tm-in input{width:58px;min-height:40px;font:inherit;font-size:1.1rem;text-align:center;border:1.5px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink)}
+.tm-in{display:flex;align-items:center;gap:4px;flex-wrap:nowrap;min-width:0}
+.tm-in label{display:flex;align-items:center;gap:4px;font-weight:600;min-width:0;flex:1 1 0}
+.tm-in label:last-child{justify-content:flex-start}
+.tm-in .tn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.92rem}
+.tm-in label:first-child .tn{margin-left:auto}
+.tm-in input{width:36px;min-height:38px;flex:none;padding:0;font:inherit;font-size:1.05rem;text-align:center;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);-moz-appearance:textfield;appearance:textfield}
+.tm-in input::-webkit-outer-spin-button,.tm-in input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.tm-form{gap:5px;flex-wrap:nowrap}
+.list>.tm-row{padding:8px 8px}
+.tm-row .rnd{min-width:16px;font-size:.66rem}
+.tm-form .btn-sm{padding:6px 9px;flex:none}
 .ptools{gap:8px;align-items:center}
 .ptimer{font-family:var(--display);font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums;min-width:3.4em}
 .ptimer.over{color:var(--danger)}
@@ -1590,7 +1598,7 @@ function matchRow(a,m,lbl){
     const sc=m.sa!=null?`${m.sa} – ${m.sb}`:"";
     return `<div class="li tm-row" data-mid="${m.id}"><span class="rnd">${R}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
   }
-  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">${R}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" enterkeyhint="next" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" enterkeyhint="done" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
+  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">${R}</span><div class="grow tm-in"><label><span class="tn">${A}</span><input type="number" inputmode="numeric" min="0" max="99" name="sa" enterkeyhint="next" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" enterkeyhint="done" value="${m.sb??""}" aria-label="Score de ${B}"><span class="tn">${B}</span></label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
 }
 function renderTourPoules(a){
   const t=a.tr;
