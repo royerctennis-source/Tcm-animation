@@ -181,6 +181,7 @@ details summary{list-style-position:inside}
 .tbar.over .note,.tbar.over .ptimer{color:#fff}
 .tbar.over .btn-ghost{color:#fff}
 .tbar .ptimer{font-size:2.2rem}
+.tbar.paused{border-color:var(--muted);background:var(--bg)}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -1643,7 +1644,7 @@ function renderTourPoules(a){
   if(t.phases.length>1||t.final)h+=`<div class="cchips" style="margin-bottom:12px">${t.phases.map((_,i)=>`<button class="btn-sm chtab${!showFinal&&i===pi?" sel":""}" data-act="tr-phase" data-v="${i}">Phase ${i+1}</button>`).join("")}${t.final?`<button class="btn-sm chtab${showFinal?" sel":""}" data-act="tr-phase" data-v="final">Phase finale</button>`:""}</div>`;
   if(showFinal)return h+renderFinal(a);
   const ph=t.phases[pi], done=phaseDone(ph)&&!(pi===t.phases.length-1&&toPlace(a).length), isLast=pi===t.phases.length-1&&!t.final;
-  if(isLast&&t.matchFmt==="tbinf")h+=phaseTimerBar(a,ph,"ph-"+pi);
+  if(isLast&&t.matchFmt==="tbinf")h+=phaseTimerBar(a,"ph-"+pi,"toutes les poules");
   const left=ph.poules.reduce((s,p)=>s+p.matches.filter(m=>!m.w).length,0);
   h+=`<div class="bar"><div><h2>Phase ${pi+1}${t.nPhases>1?" / "+t.nPhases:""}</h2><div class="note">${done?"Tous les matchs sont joués":left+" match"+(left>1?"s":"")+" à jouer"} · victoire 2 pts, défaite 0 pt</div></div>`;
   if(isLast&&done&&t.phases.length>=t.nPhases)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement</button>`;
@@ -1855,37 +1856,49 @@ function pouleTimer(a,p){
   const end=p.timerAt+a.tr.duration*60000;
   return `<span class="ptimer${nowMs()>=end?" over":""}" data-tend="${end}" data-id="${p.id}">${timerTxt(end)}</span><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${p.id}">Arrêter</button>`;
 }
-/* one chrono for every pool of the phase (or every match of a final round): all start together */
-function phaseTimerBar(a,holder,id){
-  const d=a.tr.duration;
-  if(!holder.timerAt)return `<div class="tbar"><div><b>Chrono des matchs</b><div class="note">${d} min pour toutes les poules en même temps · sonnerie à la fin</div></div><button class="btn-ball" data-act="tr-timer" data-id="${id}">▶ Lancer ${d} min</button></div>`;
-  const end=holder.timerAt+d*60000, over=nowMs()>=end;
-  return `<div class="tbar run${over?" over":""}" data-tbar="${id}"><div><span class="ptimer${over?" over":""}" data-tend="${end}" data-id="${id}">${timerTxt(end)}</span><div class="note tstate">${over?"Temps écoulé : notez les scores":"Toutes les poules jouent"}</div></div><div class="row"><button class="btn-sm" data-act="tr-timer" data-id="${id}">↻ Relancer</button><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${id}">Arrêter</button></div></div>`;
+/* One chrono for every pool of the phase (or every match of a final round). Three beeps announce the start,
+   three beeps the end. It can be paused; stopping asks for confirmation. */
+const START_DELAY=2000; // the 3rd beep is the start
+function tGet(a,id){
+  if(id.startsWith("ph-")){const ph=a.tr.phases[+id.slice(3)];return {at:ph.timerAt||null,paused:ph.timerPaused||null,set(at,p){ph.timerAt=at;ph.timerPaused=p}}}
+  const f=a.tr.final, k=id.slice(4);f.tm=f.tm||{};f.tp=f.tp||{};
+  return {at:f.tm[k]||null,paused:f.tp[k]||null,set(at,p){f.tm[k]=at;f.tp[k]=p}};
 }
-/* end-of-match bell: a two-tone ring played three times, plus vibration */
+function phaseTimerBar(a,id,what){
+  const d=a.tr.duration, T=tGet(a,id);
+  if(!T.at)return `<div class="tbar"><div><b>Chrono des matchs</b><div class="note">${d} min pour ${what} en même temps · 3 bips au départ, 3 bips à la fin</div></div><button class="btn-ball" data-act="tr-timer" data-id="${id}">▶ Lancer ${d} min</button></div>`;
+  const end=T.at+d*60000;
+  if(view.confirmStop===id)return `<div class="tbar run"><div><b>Arrêter le chrono ?</b><div class="note">Le temps en cours sera perdu.</div></div><div class="row"><button class="btn-danger btn-sm" data-act="tr-timer-stop-go" data-id="${id}">Oui, arrêter</button><button class="btn-sm" data-act="tr-timer-stop-no">Non, continuer</button></div></div>`;
+  if(T.paused)return `<div class="tbar run paused"><div><span class="ptimer">${mmss(end-T.paused)}</span><div class="note">En pause</div></div><div class="row"><button class="btn-ball btn-sm" data-act="tr-timer-resume" data-id="${id}">▶ Reprendre</button><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${id}">Arrêter</button></div></div>`;
+  const over=nowMs()>=end;
+  return `<div class="tbar run${over?" over":""}"><div><span class="ptimer${over?" over":""}" data-tend="${end}" data-tstart="${T.at}" data-id="${id}">${timerTxt(end,T.at)}</span><div class="note tstate">${over?"Temps écoulé : notez les scores":"Les matchs sont en cours"}</div></div><div class="row">${over?`<button class="btn-sm" data-act="tr-timer" data-id="${id}">↻ Relancer</button>`:`<button class="btn-sm" data-act="tr-timer-pause" data-id="${id}">⏸ Pause</button>`}<button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${id}">Arrêter</button></div></div>`;
+}
+function tone(at,f,len,vol){
+  const o=audio.createOscillator(),g=audio.createGain();o.type="square";o.frequency.value=f;
+  g.gain.setValueAtTime(0.0001,at);g.gain.exponentialRampToValueAtTime(vol,at+0.01);g.gain.setValueAtTime(vol,at+len-0.03);g.gain.exponentialRampToValueAtTime(0.0001,at+len);
+  o.connect(g).connect(audio.destination);o.start(at);o.stop(at+len+0.02);
+}
+/* start: three short beeps one second apart, the third one higher = go */
+function startBeeps(){
+  if(!audio){try{audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){return}}
+  try{if(audio.state==="suspended")audio.resume();const t=audio.currentTime+0.05;tone(t,880,0.18,0.3);tone(t+1,880,0.18,0.3);tone(t+2,1320,0.45,0.35)}catch(e){}
+}
+/* end: three long beeps */
 function ring(){
   if(!audio)return;
-  try{
-    if(audio.state==="suspended")audio.resume();
-    const t0=audio.currentTime;
-    for(let r=0;r<3;r++)[[988,0],[784,0.32]].forEach(([f,dt])=>{
-      const at=t0+r*0.9+dt, o=audio.createOscillator(), o2=audio.createOscillator(), g=audio.createGain();
-      o.type="triangle";o.frequency.value=f;o2.type="sine";o2.frequency.value=f*2;
-      g.gain.setValueAtTime(0.0001,at);g.gain.exponentialRampToValueAtTime(0.45,at+0.02);g.gain.exponentialRampToValueAtTime(0.001,at+0.6);
-      o.connect(g);o2.connect(g);g.connect(audio.destination);o.start(at);o2.start(at);o.stop(at+0.65);o2.stop(at+0.65);
-    });
-  }catch(e){}
-  try{navigator.vibrate&&navigator.vibrate([400,150,400,150,400])}catch(e){}
+  try{if(audio.state==="suspended")audio.resume();const t=audio.currentTime+0.05;[0,0.8,1.6].forEach(dt=>tone(t+dt,1046,0.55,0.4))}catch(e){}
+  try{navigator.vibrate&&navigator.vibrate([500,300,500,300,500])}catch(e){}
 }
-const timerTxt=end=>{const left=end-Date.now();return left>0?mmss(left):"+"+mmss(-left)};
+const timerTxt=(end,start)=>{const now=Date.now();if(start&&now<start)return "Départ "+Math.ceil((start-now)/1000);const left=end-now;return left>0?mmss(left):"+"+mmss(-left)};
 const tRung=new Set();
 function tourTick(a){
   document.querySelectorAll("[data-tend]").forEach(s=>{
-    const end=+s.dataset.tend;s.textContent=timerTxt(end);
+    const end=+s.dataset.tend;s.textContent=timerTxt(end,+s.dataset.tstart||0);
     const over=Date.now()>=end;s.classList.toggle("over",over);
     const key=s.dataset.id+"@"+end;
-    if(over&&!tRung.has(key)){tRung.add(key);if(Date.now()-end<5000)ring()}
-    const bar=s.closest(".tbar");if(bar){bar.classList.toggle("over",over);const st=bar.querySelector(".tstate");if(st)st.textContent=over?"Temps écoulé : notez les scores":"Toutes les poules jouent"}
+    if(over&&!tRung.has(key)){tRung.add(key);if(Date.now()-end<5000)ring();
+      const ae=document.activeElement;if(!(ae&&ae.closest&&ae.closest("form.tm-form")))setTimeout(render,0)} // show "Relancer" in place of "Pause"
+    const bar=s.closest(".tbar");if(bar){bar.classList.toggle("over",over);const st=bar.querySelector(".tstate");if(st)st.textContent=over?"Temps écoulé : notez les scores":"Les matchs sont en cours"}
   });
 }
 function tourAct2(a,act,el){
@@ -1894,12 +1907,15 @@ function tourAct2(a,act,el){
   if(act==="tr-out"){
     const id=el.dataset.pid;if(!p||hasPlayed(p,id)){toast("Ce joueur a déjà un résultat");return true}
     p.players=p.players.filter(x=>x!==id);rebuildPoule(p);commit(a);toast(`${pName(a,id)} retiré de ${p.label}`);return true}
-  if(act==="tr-timer"||act==="tr-timer-stop"){
-    const v=act==="tr-timer"?Date.now():null, id=el.dataset.id;
-    if(v&&audio&&audio.state==="suspended")audio.resume(); // unlock the sound with this tap, so the bell can ring later
-    if(id.startsWith("ph-")){const ph=a.tr.phases[+id.slice(3)];if(ph){ph.timerAt=v;commit(a)}return true}
-    if(id.startsWith("fin-")){const f=a.tr.final;if(f){f.tm=f.tm||{};f.tm[id.slice(4)]=v;commit(a)}return true}
-    const pp=a.tr.phases.flatMap(x=>x.poules).find(x=>x.id===id);if(pp){pp.timerAt=v;commit(a)}return true}
+  if(act.startsWith("tr-timer")){
+    const id=el.dataset.id, T=id?tGet(a,id):null, now=Date.now();
+    if(act==="tr-timer"){startBeeps();T.set(now+START_DELAY,null);view.confirmStop=null;commit(a);return true} // this tap also unlocks the sound for the end
+    if(act==="tr-timer-pause"){T.set(T.at,now);commit(a);toast("Chrono en pause");return true}
+    if(act==="tr-timer-resume"){startBeeps();T.set(T.at+(now-T.paused)+START_DELAY,null);commit(a);return true}
+    if(act==="tr-timer-stop"){view.confirmStop=id;render();return true}
+    if(act==="tr-timer-stop-no"){view.confirmStop=null;render();return true}
+    if(act==="tr-timer-stop-go"){T.set(null,null);view.confirmStop=null;commit(a);toast("Chrono arrêté");return true}
+  }
   return false;
 }
 
@@ -1968,7 +1984,7 @@ function renderFinal(a){
   h+=`<div style="margin-top:18px"><button class="btn-danger btn-sm" data-act="tr-final-del">Annuler la phase finale</button></div>`;
   return h;
 }
-const pouleTimerFinal=(a,r,key)=>{if(a.tr.matchFmt!=="tbinf")return "";const tm=a.tr.final.tm||{};return phaseTimerBar(a,{timerAt:tm[key]||null},"fin-"+key).replace("pour toutes les poules en même temps","pour tous les matchs du tour")};
+const pouleTimerFinal=(a,r,key)=>a.tr.matchFmt!=="tbinf"?"":phaseTimerBar(a,"fin-"+key,"tous les matchs du tour");
 function finalLauncher(a){
   const n=poolRanking(a).length;
   const sizes=[2,4,8].filter(s=>s<=n);
@@ -2313,4 +2329,3 @@ loadLocal();render();connectDb();
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
 </body></html>
-
