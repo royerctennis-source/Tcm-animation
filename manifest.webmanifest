@@ -1,12 +1,12 @@
 {
   "name": "TCM Animation",
   "short_name": "TCM Animation",
-  "description": "Rotations de matchs, défis et stats pour les animations du club de tennis.",
+  "description": "Rotations de matchs, défis, tournois et stats pour les animations du club de tennis.",
   "lang": "fr",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#EEF2F5",
   "theme_color": "#1D5C9E",
   "icons": [
