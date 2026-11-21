@@ -1671,7 +1671,7 @@ function renderTourRanking(a){
   let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}Points additionnés sur toutes les phases de poules (la phase finale ne donne pas de points). ${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la première poule (${esc(pouleName(a,0,t.phases.length-1))}) passent devant ceux de la deuxième (${esc(pouleName(a,1,t.phases.length-1))}), et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
   h+=`<div class="row" style="margin-bottom:12px"><button class="btn-main" data-act="tr-xlsx">Exporter en Excel</button><span class="note">Poules, scores et classement. Sur téléphone : Partager → Enregistrer dans Drive.</span></div>`;
   h+=`<div class="cchips" style="margin-bottom:10px"><span class="note">Classer</span><button class="btn-sm chtab${mode==="levels"?" sel":""}" data-act="tr-rank" data-v="levels">Par niveau de poule</button><button class="btn-sm chtab${mode==="cross"?" sel":""}" data-act="tr-rank" data-v="cross">En croisant les poules</button></div>`;
-  h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
+  h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th class="num">Pts</th><th class="num">Diff.</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
   if(!over)h+=`<p class="note" style="margin-top:8px">Il reste des matchs${t.phases.length<t.nPhases?" ou des phases":""} : ce classement peut encore bouger.</p>`;
   return h;
 }
@@ -2127,8 +2127,8 @@ function pubRanking(a,big){
   const list=finalRanking(a), q=fold(view.pubQ||""), t=a.tr;
   const over=t.final?finalDone(t.final):t.phases.length===t.nPhases&&phaseDone(curPhase(a));
   return `<section class="pcard rankcard"><div class="court-h"><h2>${over?"Classement final":"Classement provisoire"}</h2></div>
-    <table class="ptab"><thead><tr><th class="num">Rang</th><th>Joueur</th><th class="num">Pts</th></tr></thead>
-    <tbody>${list.map(r=>`<tr class="${q&&fold(r.name).includes(q)?"hit":""}"><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${esc(r.tag)}</div>`:""}</td><td class="num">${r.pts}</td></tr>`).join("")}</tbody></table></section>`;
+    <table class="ptab"><thead><tr><th class="num">Rang</th><th>Joueur</th><th class="num">Pts</th><th class="num">Diff.</th></tr></thead>
+    <tbody>${list.map(r=>`<tr class="${q&&fold(r.name).includes(q)?"hit":""}"><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${esc(r.tag)}</div>`:""}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></section>`;
 }
 function pubFinal(a){
   const f=a.tr.final;if(!f)return "";
