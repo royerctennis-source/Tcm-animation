@@ -1652,6 +1652,14 @@ function tourSettings(a){
   ${t.phases.length?`<div class="panel stack" style="margin-top:16px"><h3>Remettre les scores à zéro</h3><p class="note">Les poules et leurs joueurs restent en place ; seuls les scores sont effacés${t.final?", et la phase finale est annulée":""}.</p>
     <div class="row">${view.confirmReset?`<button class="btn-danger" data-act="tr-reset-go" data-v="${view.confirmReset}">Oui, effacer ${view.confirmReset==="all"?"tous les scores":"les scores de la phase "+t.phases.length}</button><button class="btn-ghost" data-act="tr-reset-cancel">Annuler</button>`
       :`<button class="btn-sm" data-act="tr-reset" data-v="cur">Scores de la phase ${t.phases.length}</button>${t.phases.length>1?`<button class="btn-sm" data-act="tr-reset" data-v="all">Tous les scores (toutes les phases)</button>`:""}`}</div></div>`:""}
+  ${t.phases.length?(()=>{
+    const what=t.final?"la phase finale":"la phase "+t.phases.length, n=t.phases.length;
+    const detail=t.final?"Les matchs du tableau final et leurs scores sont effacés ; les poules restent."
+      :n===1?"Les poules de la phase 1 et leurs scores sont effacés. Les joueurs restent : tu pourras refaire le tirage ou composer les poules à la main."
+      :`Les poules de la phase ${n} et leurs scores sont effacés. On revient à la phase ${n-1}, avec ses scores, pour relancer la phase ${n} autrement.`;
+    return `<div class="panel stack" style="margin-top:16px"><h3>Supprimer une phase</h3><p class="note">Seule la dernière phase peut être supprimée. ${detail}</p>
+      <div class="row">${view.confirmPhaseDel?`<button class="btn-danger" data-act="tr-phase-del-go">Oui, supprimer ${what}</button><button class="btn-ghost" data-act="tr-phase-del-cancel">Annuler</button>`:`<button class="btn-danger btn-sm" data-act="tr-phase-del">Supprimer ${what}</button>`}</div></div>`;
+  })():""}
   ${shareBox(a)}
   <div class="panel stack" style="margin-top:16px"><h3>Supprimer le tournoi</h3><div class="row">${view.confirmDel===a.id?`<button class="btn-danger" data-act="delete-confirm">Oui, supprimer définitivement</button><button class="btn-ghost" data-act="delete-cancel">Annuler</button>`:`<button class="btn-danger" data-act="delete">Supprimer</button>`}</div></div>`;
 }
@@ -1706,6 +1714,13 @@ function tourAct(a,act,el){
   if(act==="tr-final-del"){if(view.confirmFinal!==true){view.confirmFinal=true;toast("Touche encore pour annuler la phase finale (les scores de la phase finale seront perdus)");setTimeout(()=>view.confirmFinal=false,4000);return true}a.tr.final=null;view.confirmFinal=false;view.trPhase=null;commit(a);toast("Phase finale annulée");return true}
   if(act==="tr-keep"){const d=+el.dataset.d,r=+el.dataset.v;let k=view.trKeep||[...Array(d)].map((_,i)=>i+1);k=k.includes(r)?k.filter(x=>x!==r):k.concat(r).sort((x,y)=>x-y);view.trKeep=k;render();return true}
   if(act==="tr-per"){view.trPer=el.dataset.v==="all"?"all":+el.dataset.v;render();return true}
+  if(act==="tr-phase-del"){view.confirmPhaseDel=true;render();return true}
+  if(act==="tr-phase-del-cancel"){view.confirmPhaseDel=false;render();return true}
+  if(act==="tr-phase-del-go"){
+    const t=a.tr;let msg;
+    if(t.final){t.final=null;msg="Phase finale supprimée"}
+    else{t.phases.pop();msg=t.phases.length?`Phase ${t.phases.length+1} supprimée : retour à la phase ${t.phases.length}`:"Phase 1 supprimée : les joueurs sont prêts pour un nouveau tirage"}
+    view.confirmPhaseDel=false;view.trPhase=null;view.trPEdit=null;commit(a);toast(msg);return true}
   if(act==="tr-reset"){view.confirmReset=el.dataset.v;render();return true}
   if(act==="tr-reset-cancel"){view.confirmReset=null;render();return true}
   if(act==="tr-reset-go"){
