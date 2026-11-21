@@ -175,6 +175,12 @@ details summary{list-style-position:inside}
 @media (max-width:900px){.bigwrap{grid-template-columns:minmax(0,1fr)}}
 @media (min-width:1200px){.bigwrap .ptab{font-size:1.1rem}.bigwrap h2{font-size:1.6rem}}
 .linkbtn{display:inline-flex;align-items:center;text-decoration:none;border:1.5px solid var(--line);border-radius:10px;color:var(--ink);font-weight:600}
+.tbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--surface);border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:12px}
+.tbar.run{position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:6;border-color:var(--ink);box-shadow:0 6px 18px rgba(0,0,0,.08)}
+.tbar.over{background:var(--danger);border-color:var(--danger);color:#fff}
+.tbar.over .note,.tbar.over .ptimer{color:#fff}
+.tbar.over .btn-ghost{color:#fff}
+.tbar .ptimer{font-size:2.2rem}
 .capn{font-family:var(--display);font-size:1.6rem;font-weight:700;min-width:1.6em;text-align:center;font-variant-numeric:tabular-nums}
 .rot-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;background:var(--danger);color:#fff;border-radius:14px;padding:12px 14px;margin-bottom:12px;position:sticky;top:calc(env(safe-area-inset-top,0px) + 6px);z-index:5}
 .rot-alert .btn-main{background:#fff;color:#12263A;border-color:#fff}
@@ -1637,6 +1643,7 @@ function renderTourPoules(a){
   if(t.phases.length>1||t.final)h+=`<div class="cchips" style="margin-bottom:12px">${t.phases.map((_,i)=>`<button class="btn-sm chtab${!showFinal&&i===pi?" sel":""}" data-act="tr-phase" data-v="${i}">Phase ${i+1}</button>`).join("")}${t.final?`<button class="btn-sm chtab${showFinal?" sel":""}" data-act="tr-phase" data-v="final">Phase finale</button>`:""}</div>`;
   if(showFinal)return h+renderFinal(a);
   const ph=t.phases[pi], done=phaseDone(ph)&&!(pi===t.phases.length-1&&toPlace(a).length), isLast=pi===t.phases.length-1&&!t.final;
+  if(isLast&&t.matchFmt==="tbinf")h+=phaseTimerBar(a,ph,"ph-"+pi);
   const left=ph.poules.reduce((s,p)=>s+p.matches.filter(m=>!m.w).length,0);
   h+=`<div class="bar"><div><h2>Phase ${pi+1}${t.nPhases>1?" / "+t.nPhases:""}</h2><div class="note">${done?"Tous les matchs sont joués":left+" match"+(left>1?"s":"")+" à jouer"} · victoire 2 pts, défaite 0 pt</div></div>`;
   if(isLast&&done&&t.phases.length>=t.nPhases)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement</button>`;
@@ -1647,7 +1654,7 @@ function renderTourPoules(a){
   ph.poules.forEach(p=>{
     const st=standings(a,p);
     h+=`<section class="stack poule" style="margin-top:18px"><div class="court-h"><h2>${esc(p.label)}</h2><span class="${pouleDone(p)?"chip-free":"chip-next"}">${pouleDone(p)?"terminée":p.matches.filter(m=>m.w).length+"/"+p.matches.length+" matchs"}</span></div>
-      <div class="row ptools">${p.players.length>1?pouleTimer(a,p):""}${isLast&&p.players.length&&view.trPEdit!==p.id?`<button class="btn-ghost btn-sm" data-act="tr-pedit" data-id="${p.id}">Modifier les joueurs</button>`:""}${isLast&&!p.players.length?`<span class="note">Poule vide : place des joueurs ci-dessus.</span><button class="btn-ghost btn-sm" data-act="tr-delpoule" data-id="${p.id}">Supprimer la poule</button>`:""}</div>
+      <div class="row ptools">${isLast&&p.players.length&&view.trPEdit!==p.id?`<button class="btn-ghost btn-sm" data-act="tr-pedit" data-id="${p.id}">Modifier les joueurs</button>`:""}${isLast&&!p.players.length?`<span class="note">Poule vide : place des joueurs ci-dessus.</span><button class="btn-ghost btn-sm" data-act="tr-delpoule" data-id="${p.id}">Supprimer la poule</button>`:""}</div>
       ${isLast&&view.trPEdit===p.id?poulesEditor(a,p):""}
       <div class="tbl-wrap"><table><thead><tr><th class="num">#</th><th>Joueur</th><th class="num">J</th><th class="num">V</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${st.map(r=>`<tr><td class="num">${medal(r.rank)}</td><td><b>${esc(r.name)}</b>${starTag(a,r.id)}</td><td class="num">${r.j}</td><td class="num">${r.v}</td><td class="num"><b>${r.pts}</b></td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>
       ${p.matches.length?`<div class="list">${p.matches.map(m=>matchRow(a,m)).join("")}</div>`:p.players.length?`<p class="note">Seul dans cette poule : pas de match.</p>`:""}</section>`;
@@ -1848,6 +1855,28 @@ function pouleTimer(a,p){
   const end=p.timerAt+a.tr.duration*60000;
   return `<span class="ptimer${nowMs()>=end?" over":""}" data-tend="${end}" data-id="${p.id}">${timerTxt(end)}</span><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${p.id}">Arrêter</button>`;
 }
+/* one chrono for every pool of the phase (or every match of a final round): all start together */
+function phaseTimerBar(a,holder,id){
+  const d=a.tr.duration;
+  if(!holder.timerAt)return `<div class="tbar"><div><b>Chrono des matchs</b><div class="note">${d} min pour toutes les poules en même temps · sonnerie à la fin</div></div><button class="btn-ball" data-act="tr-timer" data-id="${id}">▶ Lancer ${d} min</button></div>`;
+  const end=holder.timerAt+d*60000, over=nowMs()>=end;
+  return `<div class="tbar run${over?" over":""}" data-tbar="${id}"><div><span class="ptimer${over?" over":""}" data-tend="${end}" data-id="${id}">${timerTxt(end)}</span><div class="note tstate">${over?"Temps écoulé : notez les scores":"Toutes les poules jouent"}</div></div><div class="row"><button class="btn-sm" data-act="tr-timer" data-id="${id}">↻ Relancer</button><button class="btn-ghost btn-sm" data-act="tr-timer-stop" data-id="${id}">Arrêter</button></div></div>`;
+}
+/* end-of-match bell: a two-tone ring played three times, plus vibration */
+function ring(){
+  if(!audio)return;
+  try{
+    if(audio.state==="suspended")audio.resume();
+    const t0=audio.currentTime;
+    for(let r=0;r<3;r++)[[988,0],[784,0.32]].forEach(([f,dt])=>{
+      const at=t0+r*0.9+dt, o=audio.createOscillator(), o2=audio.createOscillator(), g=audio.createGain();
+      o.type="triangle";o.frequency.value=f;o2.type="sine";o2.frequency.value=f*2;
+      g.gain.setValueAtTime(0.0001,at);g.gain.exponentialRampToValueAtTime(0.45,at+0.02);g.gain.exponentialRampToValueAtTime(0.001,at+0.6);
+      o.connect(g);o2.connect(g);g.connect(audio.destination);o.start(at);o2.start(at);o.stop(at+0.65);o2.stop(at+0.65);
+    });
+  }catch(e){}
+  try{navigator.vibrate&&navigator.vibrate([400,150,400,150,400])}catch(e){}
+}
 const timerTxt=end=>{const left=end-Date.now();return left>0?mmss(left):"+"+mmss(-left)};
 const tRung=new Set();
 function tourTick(a){
@@ -1855,7 +1884,8 @@ function tourTick(a){
     const end=+s.dataset.tend;s.textContent=timerTxt(end);
     const over=Date.now()>=end;s.classList.toggle("over",over);
     const key=s.dataset.id+"@"+end;
-    if(over&&!tRung.has(key)){tRung.add(key);if(Date.now()-end<5000){beep();try{navigator.vibrate&&navigator.vibrate([300,150,300])}catch(e){}}}
+    if(over&&!tRung.has(key)){tRung.add(key);if(Date.now()-end<5000)ring()}
+    const bar=s.closest(".tbar");if(bar){bar.classList.toggle("over",over);const st=bar.querySelector(".tstate");if(st)st.textContent=over?"Temps écoulé : notez les scores":"Toutes les poules jouent"}
   });
 }
 function tourAct2(a,act,el){
@@ -1866,6 +1896,8 @@ function tourAct2(a,act,el){
     p.players=p.players.filter(x=>x!==id);rebuildPoule(p);commit(a);toast(`${pName(a,id)} retiré de ${p.label}`);return true}
   if(act==="tr-timer"||act==="tr-timer-stop"){
     const v=act==="tr-timer"?Date.now():null, id=el.dataset.id;
+    if(v&&audio&&audio.state==="suspended")audio.resume(); // unlock the sound with this tap, so the bell can ring later
+    if(id.startsWith("ph-")){const ph=a.tr.phases[+id.slice(3)];if(ph){ph.timerAt=v;commit(a)}return true}
     if(id.startsWith("fin-")){const f=a.tr.final;if(f){f.tm=f.tm||{};f.tm[id.slice(4)]=v;commit(a)}return true}
     const pp=a.tr.phases.flatMap(x=>x.poules).find(x=>x.id===id);if(pp){pp.timerAt=v;commit(a)}return true}
   return false;
@@ -1936,7 +1968,7 @@ function renderFinal(a){
   h+=`<div style="margin-top:18px"><button class="btn-danger btn-sm" data-act="tr-final-del">Annuler la phase finale</button></div>`;
   return h;
 }
-const pouleTimerFinal=(a,r,key)=>{if(a.tr.matchFmt!=="tbinf")return "";const tm=a.tr.final.tm||{};return `<div class="row ptools">${pouleTimer(a,{id:"fin-"+key,timerAt:tm[key]||null})}</div>`};
+const pouleTimerFinal=(a,r,key)=>{if(a.tr.matchFmt!=="tbinf")return "";const tm=a.tr.final.tm||{};return phaseTimerBar(a,{timerAt:tm[key]||null},"fin-"+key).replace("pour toutes les poules en même temps","pour tous les matchs du tour")};
 function finalLauncher(a){
   const n=poolRanking(a).length;
   const sizes=[2,4,8].filter(s=>s<=n);
@@ -2281,3 +2313,4 @@ loadLocal();render();connectDb();
 
 <script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
 </body></html>
+
