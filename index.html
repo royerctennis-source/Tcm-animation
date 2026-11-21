@@ -1646,6 +1646,7 @@ function renderTourPoules(a){
   const ph=t.phases[pi], done=phaseDone(ph)&&!(pi===t.phases.length-1&&toPlace(a).length), isLast=pi===t.phases.length-1&&!t.final;
   if(isLast&&t.matchFmt==="tbinf")h+=phaseTimerBar(a,"ph-"+pi,"toutes les poules");
   const left=ph.poules.reduce((s,p)=>s+p.matches.filter(m=>!m.w).length,0);
+  h+=`<div class="row" style="justify-content:flex-end;margin-bottom:6px"><button class="btn-sm" data-act="tr-xlsx">Exporter les poules en Excel</button></div>`;
   h+=`<div class="bar"><div><h2>Phase ${pi+1}${t.nPhases>1?" / "+t.nPhases:""}</h2><div class="note">${done?"Tous les matchs sont joués":left+" match"+(left>1?"s":"")+" à jouer"} · victoire 2 pts, défaite 0 pt</div></div>`;
   if(isLast&&done&&t.phases.length>=t.nPhases)h+=`<button class="btn-ball" data-act="tab" data-tab="classement">Voir le classement</button>`;
   h+=`</div>`;
@@ -2071,6 +2072,14 @@ function tourWorkbook(XL,a){
       p.matches.forEach(m=>{const [x,y]=sc(m);rows.push([m.round,pName(a,m.a),x,y,pName(a,m.b),m.w?pName(a,winnerOf(m)):"à jouer"])});
     });
     add("Phase "+(i+1),rows,[8,18,8,9,9,8,7,7,6]);
+    ph.poules.filter(p=>p.players.length).forEach(p=>{
+      const r2=[[`${p.label} · phase ${i+1}`],[],["Rang","Joueur","Joués","Victoires","Points","+/−"]];
+      standings(a,p).forEach(r=>r2.push([r.rank,r.name,r.j,r.v,r.pts,r.pour-r.contre]));
+      r2.push([],["Tour","Joueur 1","Score 1","Score 2","Joueur 2"]);
+      p.matches.forEach(m=>{const [x,y]=sc(m);r2.push([m.round,pName(a,m.a),x,y,pName(a,m.b)])});
+      const nm=("Ph"+(i+1)+" "+shortLabel(p.label)).replace(/[\\/?*[\]:]/g,"-").slice(0,31);
+      if(!wb.SheetNames.includes(nm))add(nm,r2,[7,18,8,8,18,7]);
+    });
   });
   if(t.final){
     const rows=[["Phase finale"],[],["Tour","Joueur 1","Score 1","Score 2","Joueur 2","Gagnant"]];
