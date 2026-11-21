@@ -1448,7 +1448,7 @@ const MATCH_FMTS=["tbinf","tb7","tb10","court","bo3"];
 const POULE_LETTERS="ABCDEFGHIJ";
 const ordinal=r=>r===1?"1ers":r+"es";
 /* pool names, in order: the first is the top level in phase 2 and after */
-const DEFAULT_POULES=["Henneville","Figareau","Chrisner","Saboungi","Bonhomme","Pichet"];
+const DEFAULT_POULES="ABCDEFGHIJ".split("");
 function pouleName(a,i){const n=(a.tr.pouleNames||DEFAULT_POULES)[i];return "Poule "+(n||String(i+1))}
 function relabelPoules(a){a.tr.phases.forEach(ph=>ph.poules.forEach((p,i)=>p.label=pouleName(a,i)))}
 function trNorm(a){
@@ -1460,7 +1460,8 @@ function trNorm(a){
   if(!t.matchFmt)t.matchFmt="tbinf";
   if(!t.duration)t.duration=10;
   if(!t.phases)t.phases=[];
-  if(!t.pouleNames){t.pouleNames=DEFAULT_POULES.slice();relabelPoules(a)}
+  // the club names set for a short while are taken back to A, B, C… unless the organiser typed others
+  if(!t.pouleNames||t.pouleNames.join()==="Henneville,Figareau,Chrisner,Saboungi,Bonhomme,Pichet"){t.pouleNames=DEFAULT_POULES.slice();relabelPoules(a)}
   a.players=a.players||[];
 }
 /* round robin order (circle method): everybody plays once per round, nobody plays twice in a row when it can be avoided */
@@ -1663,7 +1664,7 @@ function tourSettings(a){
     <div class="grid2"><label class="f">Nombre de poules (1 à 10)<input type="number" id="s-np" min="1" max="10" value="${t.nPoules}"${locked?" disabled":""}></label><label class="f">Joueurs max par poule (2 à 6)<input type="number" id="s-pp" min="2" max="6" value="${t.perPoule}"${locked?" disabled":""}></label></div>
     <div class="grid2"><label class="f">Nombre de phases (1 à 3)<input type="number" id="s-nph" min="1" max="3" value="${t.nPhases}"></label><label class="f">Format des matchs<select id="s-mf">${MATCH_FMTS.map(k=>`<option value="${k}"${k===t.matchFmt?" selected":""}>${esc(k==="tbinf"?"Tie-break infini au temps":FORMATS[k])}</option>`).join("")}</select></label></div>
     <label class="f">Durée d'un match en tie-break infini (min)<input type="number" id="s-tdur" min="3" max="30" value="${t.duration}"></label>
-    <label class="f">Noms des poules, dans l'ordre (un par ligne ; la première est le meilleur niveau à partir de la phase 2)<textarea id="s-pnames" style="min-height:150px">${esc((t.pouleNames||DEFAULT_POULES).join("\n"))}</textarea></label>
+    <label class="f">Renommer les poules : un nom par ligne, dans l'ordre (à partir de la phase 2, la première est le meilleur niveau)<textarea id="s-pnames" style="min-height:150px">${esc((t.pouleNames||DEFAULT_POULES).join("\n"))}</textarea></label>
     ${locked?`<p class="note">Les poules sont tirées : le nombre de poules et de joueurs ne change plus.</p>`:""}
     <div><button type="submit" class="btn-main">Enregistrer</button></div></form>
   ${t.phases.length?`<div class="panel stack" style="margin-top:16px"><h3>Remettre les scores à zéro</h3><p class="note">Les poules et leurs joueurs restent en place ; seuls les scores sont effacés${t.final?", et la phase finale est annulée":""}.</p>
