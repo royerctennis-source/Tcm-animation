@@ -1449,8 +1449,14 @@ const POULE_LETTERS="ABCDEFGHIJ";
 const ordinal=r=>r===1?"1ers":r+"es";
 /* pool names, in order: the first is the top level in phase 2 and after */
 const DEFAULT_POULES="ABCDEFGHIJ".split("");
-function pouleName(a,i){const n=(a.tr.pouleNames||DEFAULT_POULES)[i];return "Poule "+(n||String(i+1))}
-function relabelPoules(a){a.tr.phases.forEach(ph=>ph.poules.forEach((p,i)=>p.label=pouleName(a,i)))}
+/* names change with the phase: A, B, C in phase 1; AA, BB, CC in phase 2; AAA… in phase 3 — unless renamed */
+function pouleName(a,i,k){
+  const custom=((a.tr.pNames||{})[k]||[])[i];
+  if(custom)return "Poule "+custom;
+  const l=DEFAULT_POULES[i];
+  return "Poule "+(l?l.repeat(k+1):String(i+1));
+}
+function relabelPoules(a){a.tr.phases.forEach((ph,k)=>ph.poules.forEach((p,i)=>p.label=pouleName(a,i,k)))}
 function trNorm(a){
   if(!a.tr)a.tr={};
   const t=a.tr;
@@ -1461,7 +1467,12 @@ function trNorm(a){
   if(!t.duration)t.duration=10;
   if(!t.phases)t.phases=[];
   // the club names set for a short while are taken back to A, B, C… unless the organiser typed others
-  if(!t.pouleNames||t.pouleNames.join()==="Henneville,Figareau,Chrisner,Saboungi,Bonhomme,Pichet"){t.pouleNames=DEFAULT_POULES.slice();relabelPoules(a)}
+  if(!t.pNames){ // one list of names for every phase before: keep names typed by the organiser for phase 1 only
+    t.pNames={};
+    const old=t.pouleNames;
+    if(old&&old.join()!==DEFAULT_POULES.join()&&old.join()!=="Henneville,Figareau,Chrisner,Saboungi,Bonhomme,Pichet")t.pNames[0]=old;
+    delete t.pouleNames;relabelPoules(a);
+  }
   a.players=a.players||[];
 }
 /* round robin order (circle method): everybody plays once per round, nobody plays twice in a row when it can be avoided */
@@ -1502,7 +1513,7 @@ function drawPhase1(a){
       groups[pick].push(id);
     });
   });
-  t.phases=[{poules:groups.map((g,i)=>makePoule(pouleName(a,i),g))}];
+  t.phases=[{poules:groups.map((g,i)=>makePoule(pouleName(a,i,0),g))}];
   return null;
 }
 /* standing of one pool: points, then results between tied players, then score difference, then points scored */
@@ -1557,7 +1568,7 @@ function planNext(a,nP,size){
   for(let i=0;i<nP;i++){const g=take.slice(i*size,(i+1)*size);if(g.length)groups.push(g)}
   return {groups,out:order.slice(nP*size)};
 }
-const nextLabel=(a,g,i)=>pouleName(a,i);
+const nextLabel=(a,g,i)=>pouleName(a,i,a.tr.phases.length);
 function nextPhase(a,nP,size){
   const {groups}=planNext(a,nP,size);
   a.tr.phases.push({poules:groups.map((g,i)=>makePoule(nextLabel(a,g,i),g.map(x=>x.id)))});
@@ -1649,7 +1660,7 @@ function renderTourRanking(a){
   const poolsOver=t.phases.length===t.nPhases&&phaseDone(curPhase(a))&&!toPlace(a).length;
   const over=t.final?finalDone(t.final):poolsOver;
   const mode=rankMode(a);
-  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}Points additionnés sur toutes les phases de poules (la phase finale ne donne pas de points). ${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la première poule (${esc(pouleName(a,0))}) passent devant ceux de la deuxième (${esc(pouleName(a,1))}), et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
+  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}Points additionnés sur toutes les phases de poules (la phase finale ne donne pas de points). ${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la première poule (${esc(pouleName(a,0,t.phases.length-1))}) passent devant ceux de la deuxième (${esc(pouleName(a,1,t.phases.length-1))}), et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
   h+=`<div class="row" style="margin-bottom:12px"><button class="btn-main" data-act="tr-xlsx">Exporter en Excel</button><span class="note">Poules, scores et classement. Sur téléphone : Partager → Enregistrer dans Drive.</span></div>`;
   h+=`<div class="cchips" style="margin-bottom:10px"><span class="note">Classer</span><button class="btn-sm chtab${mode==="levels"?" sel":""}" data-act="tr-rank" data-v="levels">Par niveau de poule</button><button class="btn-sm chtab${mode==="cross"?" sel":""}" data-act="tr-rank" data-v="cross">En croisant les poules</button></div>`;
   h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
@@ -1664,7 +1675,8 @@ function tourSettings(a){
     <div class="grid2"><label class="f">Nombre de poules (1 à 10)<input type="number" id="s-np" min="1" max="10" value="${t.nPoules}"${locked?" disabled":""}></label><label class="f">Joueurs max par poule (2 à 6)<input type="number" id="s-pp" min="2" max="6" value="${t.perPoule}"${locked?" disabled":""}></label></div>
     <div class="grid2"><label class="f">Nombre de phases (1 à 3)<input type="number" id="s-nph" min="1" max="3" value="${t.nPhases}"></label><label class="f">Format des matchs<select id="s-mf">${MATCH_FMTS.map(k=>`<option value="${k}"${k===t.matchFmt?" selected":""}>${esc(k==="tbinf"?"Tie-break infini au temps":FORMATS[k])}</option>`).join("")}</select></label></div>
     <label class="f">Durée d'un match en tie-break infini (min)<input type="number" id="s-tdur" min="3" max="30" value="${t.duration}"></label>
-    <label class="f">Renommer les poules : un nom par ligne, dans l'ordre (à partir de la phase 2, la première est le meilleur niveau)<textarea id="s-pnames" style="min-height:150px">${esc((t.pouleNames||DEFAULT_POULES).join("\n"))}</textarea></label>
+    <div class="stack" style="gap:8px"><b style="font-size:.9rem">Renommer les poules</b><span class="note">Un nom par ligne, dans l'ordre. Par défaut : A, B, C en phase 1 ; AA, BB, CC en phase 2… À partir de la phase 2, la première poule est le meilleur niveau. Laisse vide pour les noms par défaut.</span>
+      ${[...Array(Math.max(t.nPhases,t.phases.length))].map((_,k)=>`<label class="f">Phase ${k+1}<textarea class="s-pn" data-k="${k}" style="min-height:90px" placeholder="${DEFAULT_POULES.slice(0,4).map(l=>l.repeat(k+1)).join("\n")}">${esc(((t.pNames||{})[k]||[]).join("\n"))}</textarea></label>`).join("")}</div>
     ${locked?`<p class="note">Les poules sont tirées : le nombre de poules et de joueurs ne change plus.</p>`:""}
     <div><button type="submit" class="btn-main">Enregistrer</button></div></form>
   ${t.phases.length?`<div class="panel stack" style="margin-top:16px"><h3>Remettre les scores à zéro</h3><p class="note">Les poules et leurs joueurs restent en place ; seuls les scores sont effacés${t.final?", et la phase finale est annulée":""}.</p>
@@ -1687,8 +1699,12 @@ function tourSaveSettings(a){
   t.nPhases=Math.max(t.phases.length||1,clampInt(document.getElementById("s-nph").value,1,3,t.nPhases));
   t.matchFmt=document.getElementById("s-mf").value;
   t.duration=clampInt(document.getElementById("s-tdur").value,3,30,t.duration);
-  const names=document.getElementById("s-pnames").value.split(/\n|,/).map(x=>x.trim().replace(/^poule\s+/i,"")).filter(Boolean);
-  if(names.length){t.pouleNames=names;relabelPoules(a)}
+  t.pNames=t.pNames||{};
+  document.querySelectorAll(".s-pn").forEach(ta=>{
+    const names=ta.value.split(/\n|,/).map(x=>x.trim().replace(/^poule\s+/i,"")).filter(Boolean);
+    if(names.length)t.pNames[ta.dataset.k]=names;else delete t.pNames[ta.dataset.k];
+  });
+  relabelPoules(a);
 }
 function findTourMatch(a,id){for(const ph of a.tr.phases)for(const p of ph.poules){const m=p.matches.find(x=>x.id===id);if(m)return m}return finalMatches(a.tr.final).find(x=>x.id===id)||null}
 /* after a match is validated, jump to the first score box of the next match still to play */
@@ -1725,9 +1741,9 @@ function tourAct(a,act,el){
   if(act==="tr-hand"){a.tr.phases=[];a.tr.final=null;composePhase(a,a.tr.nPoules);view.trPhase=null;view.tab="poules";commit(a);toast(`${a.tr.nPoules} poules vides : place chaque joueur`);return true}
   if(act==="tr-next-hand"){
     const count=view.trNP||nextDefaults(a).nP;view.trNP=null;view.trSize=null;
-    composePhase(a,Math.max(1,count),i=>pouleName(a,i));view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} : place les joueurs, la ${pouleName(a,0)} est le meilleur niveau`);window.scrollTo(0,0);return true}
+    {const k=a.tr.phases.length;composePhase(a,Math.max(1,count),i=>pouleName(a,i,k))}view.trPhase=null;commit(a);toast(`Phase ${a.tr.phases.length} : place les joueurs, la ${pouleName(a,0,a.tr.phases.length-1)} est le meilleur niveau`);window.scrollTo(0,0);return true}
   if(act==="tr-place"){const err=placeIn(a,el.dataset.pid,el.dataset.id);if(err){toast(err);return true}commit(a);return true}
-  if(act==="tr-addpoule"){const ph=curPhase(a);const n=ph.poules.length;ph.poules.push(makePoule(pouleName(a,n),[]));commit(a);return true}
+  if(act==="tr-addpoule"){const ph=curPhase(a);const n=ph.poules.length;ph.poules.push(makePoule(pouleName(a,n,a.tr.phases.length-1),[]));commit(a);return true}
   if(act==="tr-delpoule"){const ph=curPhase(a);ph.poules=ph.poules.filter(p=>p.id!==el.dataset.id||p.players.length);commit(a);return true}
   if(act==="tr-final-size"){view.trFinalSize=+el.dataset.v;render();return true}
   if(act==="tr-final-go"){const th=document.getElementById("tr-third");view.trThird=th?th.checked:false;launchFinal(a,+el.dataset.v,th&&th.checked);view.trPhase="final";commit(a);toast("Phase finale lancée");window.scrollTo(0,0);return true}
@@ -1859,7 +1875,7 @@ function tourAct2(a,act,el){
 const shortLabel=l=>String(l).replace(/^Poule (des )?/,"");
 /* empty pools for a phase composed by hand: players are then placed one by one */
 function composePhase(a,count,labels){
-  const poules=[...Array(count)].map((_,i)=>makePoule(labels?labels(i):pouleName(a,i),[]));
+  const poules=[...Array(count)].map((_,i)=>makePoule(labels?labels(i):pouleName(a,i,a.tr.phases.length),[]));
   a.tr.phases.push({poules,manual:true});
 }
 function placeIn(a,id,pouleId){
