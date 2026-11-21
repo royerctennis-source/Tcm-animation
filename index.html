@@ -1588,9 +1588,9 @@ function matchRow(a,m,lbl){
   const A=esc(pName(a,m.a)),B=esc(pName(a,m.b)), R=lbl||"T"+m.round;
   if(m.w&&view.trEdit!==m.id){
     const sc=m.sa!=null?`${m.sa} – ${m.sb}`:"";
-    return `<div class="li tm-row"><span class="rnd">${R}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
+    return `<div class="li tm-row" data-mid="${m.id}"><span class="rnd">${R}</span><div class="grow"><span class="${m.w==="a"?"tw":"tl"}">${A}</span> <b class="tsc">${sc||"·"}</b> <span class="${m.w==="b"?"tw":"tl"}">${B}</span></div><button class="btn-ghost btn-sm" data-act="tr-edit" data-id="${m.id}">Modifier</button></div>`;
   }
-  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">${R}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
+  return `<form class="li tm-row tm-form" data-id="${m.id}"><span class="rnd">${R}</span><div class="grow tm-in"><label>${A}<input type="number" inputmode="numeric" min="0" max="99" name="sa" enterkeyhint="next" value="${m.sa??""}" aria-label="Score de ${A}"></label><span class="muted">–</span><label><input type="number" inputmode="numeric" min="0" max="99" name="sb" enterkeyhint="done" value="${m.sb??""}" aria-label="Score de ${B}">${B}</label></div><button class="btn-sm btn-ball" type="submit">Valider</button></form>`;
 }
 function renderTourPoules(a){
   const t=a.tr;
@@ -1624,7 +1624,7 @@ function renderTourRanking(a){
   const poolsOver=t.phases.length===t.nPhases&&phaseDone(curPhase(a))&&!toPlace(a).length;
   const over=t.final?finalDone(t.final):poolsOver;
   const mode=rankMode(a);
-  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la poule 1 (ou A, ou des 1ers) passent devant ceux de la poule 2, et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
+  let h=`<div class="bar"><div><h2>${over?"Classement final":"Classement provisoire"}</h2><div class="note">${t.final?"Phase finale pour les premières places, puis le classement des poules. ":""}Points additionnés sur toutes les phases de poules (la phase finale ne donne pas de points). ${mode==="levels"?"Par niveau de poule de la dernière phase : tous les joueurs de la poule 1 (ou A, ou des 1ers) passent devant ceux de la poule 2, et ainsi de suite.":"En croisant les poules : les 1ers de chaque poule d'abord, puis les 2es… départagés par les points puis l'écart de score."}</div></div></div>`;
   h+=`<div class="row" style="margin-bottom:12px"><button class="btn-main" data-act="tr-xlsx">Exporter en Excel</button><span class="note">Poules, scores et classement. Sur téléphone : Partager → Enregistrer dans Drive.</span></div>`;
   h+=`<div class="cchips" style="margin-bottom:10px"><span class="note">Classer</span><button class="btn-sm chtab${mode==="levels"?" sel":""}" data-act="tr-rank" data-v="levels">Par niveau de poule</button><button class="btn-sm chtab${mode==="cross"?" sel":""}" data-act="tr-rank" data-v="cross">En croisant les poules</button></div>`;
   h+=`<div class="tbl-wrap"><table><thead><tr><th class="num">Rang</th><th>Joueur</th><th>Poule</th><th class="num">Pts</th><th class="num">+/−</th></tr></thead><tbody>${list.map(r=>`<tr><td class="num">${medal(r.final)}</td><td><b>${esc(r.name)}</b>${r.tag?`<div class="note">${r.tag}</div>`:""}</td><td>${esc(r.poule)} · ${r.rank}${r.rank===1?"er":"e"}</td><td class="num">${r.pts}</td><td class="num">${r.pour-r.contre>0?"+":""}${r.pour-r.contre}</td></tr>`).join("")}</tbody></table></div>`;
@@ -1655,6 +1655,15 @@ function tourSaveSettings(a){
   t.duration=clampInt(document.getElementById("s-tdur").value,3,30,t.duration);
 }
 function findTourMatch(a,id){for(const ph of a.tr.phases)for(const p of ph.poules){const m=p.matches.find(x=>x.id===id);if(m)return m}return finalMatches(a.tr.final).find(x=>x.id===id)||null}
+/* after a match is validated, jump to the first score box of the next match still to play */
+function focusNextMatch(id){
+  const rows=[...document.querySelectorAll(".tm-row")];
+  const i=rows.findIndex(r=>r.dataset.mid===id||r.dataset.id===id);
+  const next=rows.slice(i+1).find(r=>r.classList.contains("tm-form"))||rows.find(r=>r.classList.contains("tm-form"));
+  if(!next)return;
+  const inp=next.querySelector('input[name="sa"]');
+  if(inp){inp.focus({preventScroll:true});next.scrollIntoView({block:"center",behavior:"smooth"})}
+}
 function tourSubmit(a,form){
   if(form.id==="tr-add"){
     const names=parseNames(document.getElementById("tr-names").value).map(n=>n.charAt(0).toLocaleUpperCase("fr")+n.slice(1));
@@ -1671,7 +1680,7 @@ function tourSubmit(a,form){
     if(sa===sb){toast("Il faut un gagnant : les scores ne peuvent pas être égaux");return}
     m.sa=sa;m.sb=sb;m.w=sa>sb?"a":"b";view.trEdit=null;
     if(finalMatches(a.tr.final).includes(m))finalAdvance(a);
-    commit(a);
+    commit(a);focusNextMatch(m.id);
     toast(`${pName(a,m.w==="a"?m.a:m.b)} gagne ${Math.max(sa,sb)}–${Math.min(sa,sb)}${finalMatches(a.tr.final).includes(m)?"":" · +2 pts"}`);
   }
 }
@@ -1881,17 +1890,27 @@ function finalLauncher(a){
 }
 /* ranking from the pools of the last phase: by pool level (pool 1/A above pool 2/B), or crossing the pools */
 function rankMode(a){const m=a.tr.rankMode||"auto";return m==="auto"?(a.tr.phases.length>1||curPhase(a).manual?"levels":"cross"):m}
+/* points, wins and score totals added over every pool phase (the final knockout gives no points) */
+function poolTotals(a){
+  const tot={};
+  a.tr.phases.forEach(ph=>ph.poules.forEach(p=>standings(a,p).forEach(r=>{
+    const x=tot[r.id]=tot[r.id]||{pts:0,j:0,v:0,pour:0,contre:0};
+    x.pts+=r.pts;x.j+=r.j;x.v+=r.v;x.pour+=r.pour;x.contre+=r.contre;
+  })));
+  return tot;
+}
 function poolRanking(a){
   const t=a.tr;if(!t.phases.length)return [];
+  const TOT=poolTotals(a), cum=r=>Object.assign(r,{ptsPhase:r.pts},TOT[r.id]||{});
   const ph=curPhase(a);
-  const tables=ph.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>Object.assign({},r,{poule:p.label})));
+  const tables=ph.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>cum(Object.assign({},r,{poule:p.label}))));
   const list=rankMode(a)==="levels"?[].concat(...tables)
     :[].concat(...tables).sort((x,y)=>x.rank-y.rank||y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour||x.name.localeCompare(y.name,"fr"));
   // players who stopped in an earlier phase come after, in the order of that phase
   const seen=new Set(list.map(r=>r.id));
   for(let k=t.phases.length-2;k>=0;k--){
     const pk=t.phases[k], lv=k>0||pk.manual;
-    const tb=pk.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>Object.assign({},r,{poule:p.label,tag:"Arrêt phase "+(k+1)})));
+    const tb=pk.poules.filter(p=>p.players.length).map(p=>standings(a,p).map(r=>cum(Object.assign({},r,{poule:p.label,tag:"Arrêt phase "+(k+1)}))));
     const l=lv?[].concat(...tb):[].concat(...tb).sort((x,y)=>x.rank-y.rank||y.pts-x.pts||(y.pour-y.contre)-(x.pour-x.contre)||y.pour-x.pour);
     l.forEach(r=>{if(!seen.has(r.id)){seen.add(r.id);list.push(r)}});
   }
@@ -2172,12 +2191,15 @@ $app.addEventListener("change",e=>{
   if(act==="cur-defi"||act==="cur-defi-radio"){setCurrentDefi(a,el.value);commit(a);toast(a.currentDefi?"Défi en jeu : "+defiText(a,a.currentDefi):"Plus de défi en jeu")}
   if(act==="present"){const p=a.players.find(x=>x.id===el.dataset.id);p.present=el.checked;commit(a)}
 });
-$app.addEventListener("input",e=>{if(e.target.id==="ch-name")view.chName=e.target.value;
+$app.addEventListener("input",e=>{
+  if(e.target.name==="sa"&&e.target.closest("form.tm-form")&&e.target.value.length>=2){const sb2=e.target.form.elements.sb;sb2.focus();sb2.select()}if(e.target.id==="ch-name")view.chName=e.target.value;
   if(e.target.id==="arrive-names")arrSuggest(e.target);
   if(e.target.id==="tr-names"){view.trNames=e.target.value;trSuggest(e.target)}
   if(e.target.id==="pub-q"){view.pubQ=e.target.value;const pos=e.target.selectionStart;render();const q=document.getElementById("pub-q");if(q){q.focus();try{q.setSelectionRange(pos,pos)}catch(_){}}return}
   if(e.target.id==="dir-q"){view.dirQ=e.target.value;const pos=e.target.selectionStart;render();const q=document.getElementById("dir-q");if(q){q.focus();try{q.setSelectionRange(pos,pos)}catch(_){}}return}if(e.target.id==="arrive-names"){view.arrNames=e.target.value;const l=document.getElementById("arrn-lbl");if(l&&(view.arrN||1)>1)l.textContent=e.target.value.includes(",")?"joueurs seuls (virgules)":"TEAM "+(e.target.value.trim()||"Prénom")}});
 $app.addEventListener("keydown",e=>{
+  const fm=e.target.closest&&e.target.closest("form.tm-form");
+  if(fm&&e.key==="Enter"){e.preventDefault();if(e.target.name==="sa"){fm.elements.sb.focus();fm.elements.sb.select()}else fm.requestSubmit();return}
   if(e.key==="Enter"&&e.target.id==="new-defi"){e.preventDefault();document.querySelector('[data-act="add-defi"]').click()}
 });
 let audio=null;const rung=new Set();
